@@ -28,15 +28,17 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/tasks', (req, res) => {
-  const { done, search } = req.query;
-  let result = store.findAll();
+  const { done, search, sort } = req.query;
+  const filters = {};
 
+  // The query string is still validated here, in the HTTP layer, before any of
+  // it reaches the storage module. The database is the last line of defence,
+  // not the first.
   if (done !== undefined) {
     if (done !== 'true' && done !== 'false') {
       return res.status(400).json({ error: 'done filter must be true or false' });
     }
-    const wantDone = done === 'true';
-    result = result.filter((task) => task.done === wantDone);
+    filters.done = done === 'true';
   }
 
   if (search !== undefined) {
@@ -44,11 +46,17 @@ app.get('/tasks', (req, res) => {
     if (word === '') {
       return res.status(400).json({ error: 'search must not be blank' });
     }
-    const lower = word.toLowerCase();
-    result = result.filter((task) => task.title.toLowerCase().includes(lower));
+    filters.search = word;
   }
 
-  res.json(result);
+  if (sort !== undefined) {
+    if (sort !== 'title') {
+      return res.status(400).json({ error: 'sort must be title' });
+    }
+    filters.sort = sort;
+  }
+
+  res.json(store.listTasks(filters));
 });
 
 app.get('/stats', (req, res) => {

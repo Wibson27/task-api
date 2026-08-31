@@ -38,6 +38,32 @@ function migrate() {
       done  INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1))
     )
   `);
+
+  // Adding columns to a table that already holds rows. SQLite refuses
+  // ADD COLUMN ... NOT NULL DEFAULT CURRENT_TIMESTAMP, because the default has
+  // to be a constant — the existing rows would each need a different value. So
+  // the shape change is three steps: add the column nullable, backfill the rows
+  // already there, and have the application set it from now on. Doing that by
+  // hand, guarded by a check of the current columns, is what a migration tool
+  // does for you once a schema starts changing regularly.
+  const columns = db.prepare('PRAGMA table_info(tasks)').all().map((c) => c.name);
+
+  for (const column of ['created_at', 'updated_at']) {
+    if (!columns.includes(column)) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN ${column} TEXT`);
+      db.exec(`UPDATE tasks SET ${column} = datetime('now') WHERE ${column} IS NULL`);
+    }
+  }
+
+  // An index on done: the ?done= filter asks "give me the rows where done = 1",
+  // and without an index SQLite reads every row to find them. The index is a
+  // sorted structure it can seek straight into.
+  //
+  // There is deliberately no index on title. The search filter uses
+  // LIKE '%word%', and a leading wildcard means no prefix to seek on — SQLite
+  // would scan the whole index instead of the whole table and save nothing.
+  // Making that column fast needs a different tool (FTS5), not another index.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (done)');
 }
 
 // Counting and inserting inside one transaction makes the seed all-or-nothing.
@@ -49,7 +75,10 @@ function seedIfEmpty() {
 
     if (count > 0) return false;
 
-    const insert = db.prepare('INSERT INTO tasks (title, done) VALUES (?, ?)');
+    const insert = db.prepare(`
+      INSERT INTO tasks (title, done, created_at, updated_at)
+      VALUES (?, ?, datetime('now'), datetime('now'))
+    `);
     for (const task of SEED_TASKS) {
       insert.run(task.title, task.done);
     }
@@ -78,11 +107,16 @@ function toTask(row) {
 const statements = {
   findAll: db.prepare('SELECT id, title, done FROM tasks ORDER BY id'),
   findById: db.prepare('SELECT id, title, done FROM tasks WHERE id = ?'),
-  create: db.prepare('INSERT INTO tasks (title, done) VALUES (?, 0) RETURNING id, title, done'),
+  create: db.prepare(`
+    INSERT INTO tasks (title, done, created_at, updated_at)
+    VALUES (?, 0, datetime('now'), datetime('now'))
+    RETURNING id, title, done
+  `),
   update: db.prepare(`
     UPDATE tasks
-       SET title = COALESCE(?, title),
-           done  = COALESCE(?, done)
+       SET title      = COALESCE(?, title),
+           done       = COALESCE(?, done),
+           updated_at = datetime('now')
      WHERE id = ?
     RETURNING id, title, done
   `),
@@ -92,6 +126,40 @@ const statements = {
 
 function findAll() {
   return statements.findAll.all().map(toTask);
+}
+
+// LIKE treats % and _ as wildcards, so a search for "50%" would match far more
+// than it should. Escaping them and declaring the escape character makes the
+// user's text match literally.
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+// The WHERE clause is assembled from fixed fragments this file owns, while every
+// user-supplied value still travels as a bound `?`. Building the SQL *structure*
+// in JavaScript is fine; interpolating a user's *value* into it is the thing
+// that gets databases dropped.
+function listTasks({ done, search, sort } = {}) {
+  const where = [];
+  const params = [];
+
+  if (done !== undefined) {
+    where.push('done = ?');
+    params.push(Number(done));
+  }
+
+  if (search !== undefined) {
+    where.push("title LIKE ? ESCAPE '\\'");
+    params.push(`%${escapeLike(search)}%`);
+  }
+
+  const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const order = sort === 'title' ? 'ORDER BY title COLLATE NOCASE' : 'ORDER BY id';
+
+  return db
+    .prepare(`SELECT id, title, done FROM tasks ${clause} ${order}`)
+    .all(...params)
+    .map(toTask);
 }
 
 // The `?` is a bound parameter. The value travels to SQLite separately from
@@ -151,7 +219,10 @@ function reset() {
     db.prepare('DELETE FROM tasks').run();
     db.prepare("DELETE FROM sqlite_sequence WHERE name = 'tasks'").run();
 
-    const insert = db.prepare('INSERT INTO tasks (title, done) VALUES (?, ?)');
+    const insert = db.prepare(`
+      INSERT INTO tasks (title, done, created_at, updated_at)
+      VALUES (?, ?, datetime('now'), datetime('now'))
+    `);
     for (const task of SEED_TASKS) {
       insert.run(task.title, task.done);
     }
@@ -166,6 +237,7 @@ module.exports = {
   DB_FILE,
   seeded,
   findAll,
+  listTasks,
   findById,
   create,
   update,
