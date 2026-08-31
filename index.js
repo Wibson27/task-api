@@ -19,6 +19,11 @@ function findTask(id) {
   return tasks.find((task) => task.id === id);
 }
 
+function nextId() {
+  if (tasks.length === 0) return 1;
+  return Math.max(...tasks.map((task) => task.id)) + 1;
+}
+
 app.get('/', (req, res) => {
   res.json({
     name: 'Task API',
@@ -33,6 +38,19 @@ app.get('/health', (req, res) => {
 
 app.get('/tasks', (req, res) => {
   res.json(tasks);
+});
+
+app.post('/tasks', (req, res) => {
+  const { title } = req.body ?? {};
+
+  if (title === undefined || title === null || String(title).trim() === '') {
+    return res.status(400).json({ error: 'title must be a non-empty string' });
+  }
+
+  const task = { id: nextId(), title: String(title).trim(), done: false };
+  tasks.push(task);
+
+  res.status(201).json(task);
 });
 
 app.get('/tasks/:id', (req, res) => {
