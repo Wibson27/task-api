@@ -87,8 +87,7 @@ app.post('/tasks', (req, res) => {
     return res.status(400).json({ error: 'title must be a non-empty string' });
   }
 
-  const task = { id: nextId(), title: String(title).trim(), done: false };
-  tasks.push(task);
+  const task = store.create(String(title).trim());
 
   res.status(201).json(task);
 });

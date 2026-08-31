@@ -78,6 +78,7 @@ function toTask(row) {
 const statements = {
   findAll: db.prepare('SELECT id, title, done FROM tasks ORDER BY id'),
   findById: db.prepare('SELECT id, title, done FROM tasks WHERE id = ?'),
+  create: db.prepare('INSERT INTO tasks (title, done) VALUES (?, 0) RETURNING id, title, done'),
 };
 
 function findAll() {
@@ -91,4 +92,12 @@ function findById(id) {
   return toTask(statements.findById.get(id));
 }
 
-module.exports = { db, DB_FILE, seeded, findAll, findById };
+// The id is not chosen here. INSERT leaves it out, SQLite assigns it from the
+// AUTOINCREMENT sequence, and RETURNING hands the finished row straight back —
+// so there is no second SELECT and no window where another writer could take
+// the id we were about to read.
+function create(title) {
+  return toTask(statements.create.get(title));
+}
+
+module.exports = { db, DB_FILE, seeded, findAll, findById, create };
