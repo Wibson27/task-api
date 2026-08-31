@@ -1,18 +1,18 @@
 {
   "name": "task-api",
   "version": "1.0.0",
-  "description": "CRUD API for tasks, backed by SQLite. FlyRank Internship, Backend Track, Weeks 2-3, Assignments A1 and A2.",
+  "description": "CRUD API for tasks, running against PostgreSQL in Docker. FlyRank Internship, Backend Track, Assignments A1-A3.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js",
-    "test": "node --test"
+    "start": "node --env-file-if-exists=.env index.js",
+    "dev": "node --env-file-if-exists=.env --watch index.js",
+    "test": "node --env-file-if-exists=.env --test"
   },
   "author": "Rifqi Wibisono",
   "license": "ISC",
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
     "express": "^5.2.1",
+    "pg": "^8.23.0",
     "swagger-ui-express": "^5.0.1"
   }
 }
