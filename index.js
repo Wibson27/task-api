@@ -15,25 +15,6 @@ app.use(express.json());
 // Interactive documentation, generated from the OpenAPI document next to this file.
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
-// The "database" for now: a plain array. Everything in it dies when the
-// process does — that is the whole point of Week 3.
-const SEED_TASKS = [
-  { id: 1, title: 'Finish DSA assignment', done: false },
-  { id: 2, title: 'Email academic advisor', done: true },
-  { id: 3, title: 'Read chapter on virtual memory', done: false },
-];
-
-let tasks = SEED_TASKS.map((task) => ({ ...task }));
-
-function findTask(id) {
-  return tasks.find((task) => task.id === id);
-}
-
-function nextId() {
-  if (tasks.length === 0) return 1;
-  return Math.max(...tasks.map((task) => task.id)) + 1;
-}
-
 app.get('/', (req, res) => {
   res.json({
     name: 'Task API',
@@ -71,13 +52,11 @@ app.get('/tasks', (req, res) => {
 });
 
 app.get('/stats', (req, res) => {
-  const done = tasks.filter((task) => task.done).length;
-  res.json({ total: tasks.length, done, open: tasks.length - done });
+  res.json(store.stats());
 });
 
 app.post('/reset', (req, res) => {
-  tasks = SEED_TASKS.map((task) => ({ ...task }));
-  res.json(tasks);
+  res.json(store.reset());
 });
 
 app.post('/tasks', (req, res) => {
@@ -129,25 +108,21 @@ app.put('/tasks/:id', (req, res) => {
     changes.done = body.done;
   }
 
-  const task = findTask(Number(req.params.id));
+  const task = store.update(Number(req.params.id), changes);
 
   if (!task) {
     return res.status(404).json({ error: `Task ${req.params.id} not found` });
   }
 
-  Object.assign(task, changes);
-
   res.json(task);
 });
 
 app.delete('/tasks/:id', (req, res) => {
-  const index = tasks.findIndex((task) => task.id === Number(req.params.id));
+  const deleted = store.remove(Number(req.params.id));
 
-  if (index === -1) {
+  if (!deleted) {
     return res.status(404).json({ error: `Task ${req.params.id} not found` });
   }
-
-  tasks.splice(index, 1);
 
   res.status(204).send();
 });

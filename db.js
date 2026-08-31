@@ -79,6 +79,15 @@ const statements = {
   findAll: db.prepare('SELECT id, title, done FROM tasks ORDER BY id'),
   findById: db.prepare('SELECT id, title, done FROM tasks WHERE id = ?'),
   create: db.prepare('INSERT INTO tasks (title, done) VALUES (?, 0) RETURNING id, title, done'),
+  update: db.prepare(`
+    UPDATE tasks
+       SET title = COALESCE(?, title),
+           done  = COALESCE(?, done)
+     WHERE id = ?
+    RETURNING id, title, done
+  `),
+  remove: db.prepare('DELETE FROM tasks WHERE id = ? RETURNING id'),
+  stats: db.prepare('SELECT COUNT(*) AS total, COALESCE(SUM(done), 0) AS done FROM tasks'),
 };
 
 function findAll() {
@@ -100,4 +109,67 @@ function create(title) {
   return toTask(statements.create.get(title));
 }
 
-module.exports = { db, DB_FILE, seeded, findAll, findById, create };
+// COALESCE(?, column) is what keeps Assignment 1's partial updates working in
+// one statement: pass NULL for a field the client did not send and the column
+// keeps its current value. The alternative — SELECT the row, merge in JS, then
+// UPDATE — is a read-modify-write, and another writer could change the row in
+// the gap between the two queries. This cannot, because SQLite evaluates the
+// whole statement against one consistent snapshot.
+//
+// `done: false` must survive this too. COALESCE only falls through on NULL,
+// and 0 is not NULL, so an explicit false is written rather than ignored.
+function update(id, { title, done }) {
+  const row = statements.update.get(
+    title === undefined ? null : title,
+    done === undefined ? null : Number(done),
+    id,
+  );
+
+  return toTask(row);
+}
+
+// RETURNING gives us the deleted row's id, or undefined if the WHERE matched
+// nothing. That single result answers "did it exist?" without a separate
+// SELECT beforehand.
+function remove(id) {
+  return statements.remove.get(id) !== undefined;
+}
+
+// Counted by the database rather than by pulling every row into JavaScript and
+// counting there. SUM works because `done` is already 0 or 1; COALESCE covers
+// the empty table, where SUM returns NULL rather than 0.
+function stats() {
+  const { total, done } = statements.stats.get();
+  return { total, done, open: total - done };
+}
+
+// Wipe and re-seed as one unit. sqlite_sequence is SQLite's own bookkeeping
+// table for AUTOINCREMENT counters — clearing this table's row restarts ids at
+// 1, so a reset returns the same three tasks with the same ids every time.
+function reset() {
+  const run = db.transaction(() => {
+    db.prepare('DELETE FROM tasks').run();
+    db.prepare("DELETE FROM sqlite_sequence WHERE name = 'tasks'").run();
+
+    const insert = db.prepare('INSERT INTO tasks (title, done) VALUES (?, ?)');
+    for (const task of SEED_TASKS) {
+      insert.run(task.title, task.done);
+    }
+  });
+
+  run();
+  return findAll();
+}
+
+module.exports = {
+  db,
+  DB_FILE,
+  seeded,
+  findAll,
+  findById,
+  create,
+  update,
+  remove,
+  stats,
+  reset,
+};
