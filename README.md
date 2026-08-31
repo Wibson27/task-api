@@ -40,7 +40,7 @@ changes. Set `PORT` to listen elsewhere: `PORT=4000 npm start`.
 A task looks like this:
 
 ```json
-{ "id": 1, "title": "Buy groceries", "done": false }
+{ "id": 1, "title": "Finish DSA assignment", "done": false }
 ```
 
 ### Query parameters on `/tasks`
@@ -48,9 +48,9 @@ A task looks like this:
 | Parameter | Example | Effect |
 |---|---|---|
 | `done` | `/tasks?done=true` | Only finished tasks. Must be `true` or `false`. |
-| `search` | `/tasks?search=milk` | Only tasks whose title contains the word, case-insensitive. |
+| `search` | `/tasks?search=memory` | Only tasks whose title contains the word, case-insensitive. |
 
-Both can be combined: `/tasks?done=false&search=milk`.
+Both can be combined: `/tasks?done=false&search=memory`.
 
 ### Validation rules
 
@@ -58,6 +58,7 @@ Both can be combined: `/tasks?done=false&search=milk`.
 - `PUT /tasks/:id` requires at least one of `title` or `done`. `title` cannot
   be empty; `done` must be a real boolean, not the string `"true"`.
 - Titles are trimmed before they are stored.
+- The client never chooses `id` or the initial `done` — the server assigns both.
 - A body that is not valid JSON returns 400, not a crash.
 
 ## A full lifecycle, via curl
@@ -68,24 +69,24 @@ visible at each step:
 ```text
 $ curl -i -X POST http://localhost:3000/tasks \
     -H "Content-Type: application/json" \
-    -d '{"title":"Buy milk"}'
+    -d '{"title":"Review pointer arithmetic notes"}'
 HTTP/1.1 201 Created
 Content-Type: application/json; charset=utf-8
 
-{"id":4,"title":"Buy milk","done":false}
+{"id":4,"title":"Review pointer arithmetic notes","done":false}
 
 $ curl -i http://localhost:3000/tasks/4
 HTTP/1.1 200 OK
 Content-Type: application/json; charset=utf-8
 
-{"id":4,"title":"Buy milk","done":false}
+{"id":4,"title":"Review pointer arithmetic notes","done":false}
 
 $ curl -i -X PUT http://localhost:3000/tasks/4 \
     -H "Content-Type: application/json" -d '{"done":true}'
 HTTP/1.1 200 OK
 Content-Type: application/json; charset=utf-8
 
-{"id":4,"title":"Buy milk","done":true}
+{"id":4,"title":"Review pointer arithmetic notes","done":true}
 
 $ curl -i -X DELETE http://localhost:3000/tasks/4
 HTTP/1.1 204 No Content
@@ -108,15 +109,15 @@ that sends a real request to the running server.
 
 ## What happens on restart
 
-I created a task called "Survive a restart", confirmed it was in `GET /tasks`,
-stopped the server, started it again, and asked for the list once more — the
-task was gone and only the three seed tasks came back.
+I created a task called "Survive a restart", confirmed `GET /tasks` returned
+four tasks, killed the process, started a new one, and asked for the list
+again — it came back with three. The new task was gone.
 
 That happens because `tasks` is an ordinary JavaScript array living in the
 process's heap. When the process exits, the operating system reclaims every
 page of memory it owned, and nothing was ever written anywhere that outlives
-it. A database is what fixes this: it writes to disk, so the data survives the
-process that created it.
+it. A database is what fixes this: it writes to disk before acknowledging the
+write, so the data survives the process that created it.
 
 ## Project layout
 
