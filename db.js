@@ -184,6 +184,85 @@ async function findById(id) {
   return rows[0];
 }
 
+// The id is not chosen here. INSERT leaves it out, the sequence behind SERIAL
+// assigns it, and RETURNING hands the finished row straight back — so there is
+// no second SELECT and no window in which another writer could claim the id we
+// were about to read.
+async function create(title) {
+  const { rows } = await pool.query(
+    `INSERT INTO tasks (title, done) VALUES ($1, FALSE) RETURNING ${COLUMNS}`,
+    [title],
+  );
+  return rows[0];
+}
+
+// COALESCE($1, title) keeps A1's partial updates working in a single statement:
+// pass NULL for a field the client did not send and the column keeps its current
+// value. The alternative — SELECT the row, merge in JavaScript, then UPDATE — is
+// a read-modify-write, and with a real server there genuinely are other clients
+// that could change the row in the gap between those two queries.
+//
+// `done: false` survives this because COALESCE only falls through on NULL, and
+// false is not NULL.
+async function update(id, { title, done }) {
+  const { rows } = await pool.query(
+    `UPDATE tasks
+        SET title      = COALESCE($1, title),
+            done       = COALESCE($2, done),
+            updated_at = now()
+      WHERE id = $3
+     RETURNING ${COLUMNS}`,
+    [title === undefined ? null : title, done === undefined ? null : done, id],
+  );
+  return rows[0];
+}
+
+// rowCount tells us whether the WHERE matched anything, which answers "did it
+// exist?" without a separate SELECT beforehand.
+async function remove(id) {
+  const { rowCount } = await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
+  return rowCount > 0;
+}
+
+// Counted by the database rather than by pulling every row into JavaScript.
+// FILTER is Postgres's clause for aggregating a subset, and both counts come
+// back from one pass over the table.
+async function stats() {
+  const { rows } = await pool.query(`
+    SELECT COUNT(*)::int                        AS total,
+           COUNT(*) FILTER (WHERE done)::int    AS done
+      FROM tasks
+  `);
+  const { total, done } = rows[0];
+  return { total, done, open: total - done };
+}
+
+// Wipe and re-seed as one unit. TRUNCATE ... RESTART IDENTITY resets the SERIAL
+// sequence as well as emptying the table, so a reset returns the same three
+// tasks with the same ids every time — the job that needed a manual delete from
+// sqlite_sequence in A2.
+async function reset() {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query('TRUNCATE tasks RESTART IDENTITY');
+
+    for (const task of SEED_TASKS) {
+      await client.query('INSERT INTO tasks (title, done) VALUES ($1, $2)', [task.title, task.done]);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return findAll();
+}
+
 // A health check that does not touch the database is theatre: the process can be
 // perfectly alive while every request that matters fails. This runs a real query.
 async function ping() {
@@ -203,6 +282,11 @@ module.exports = {
   findAll,
   listTasks,
   findById,
+  create,
+  update,
+  remove,
+  stats,
+  reset,
   ping,
   close,
 };
