@@ -6,7 +6,9 @@
     "description": "In-memory CRUD API for tasks. Data is held in a plain array and is lost when the server restarts."
   },
   "servers": [
-    { "url": "http://localhost:3000" }
+    {
+      "url": "http://localhost:3000"
+    }
   ],
   "paths": {
     "/tasks": {
@@ -15,14 +17,51 @@
         "operationId": "listTasks",
         "responses": {
           "200": {
-            "description": "All tasks",
+            "description": "Matching tasks",
             "content": {
               "application/json": {
-                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } }
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Task"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "done filter must be true or false"
+                }
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "done",
+            "in": "query",
+            "description": "Filter by completion status",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Filter tasks whose title contains this word",
+            "schema": {
+              "type": "string",
+              "example": "memory"
+            }
+          }
+        ]
       },
       "post": {
         "summary": "Create a task",
@@ -31,7 +70,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateTaskRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskRequest"
+              }
             }
           }
         },
@@ -39,15 +80,23 @@
           "201": {
             "description": "Task created",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Task" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
             }
           },
           "400": {
             "description": "Invalid request body",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" },
-                "example": { "error": "title must be a non-empty string" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "title must be a non-empty string"
+                }
               }
             }
           }
@@ -61,7 +110,10 @@
           "in": "path",
           "required": true,
           "description": "Task id",
-          "schema": { "type": "integer", "example": 1 }
+          "schema": {
+            "type": "integer",
+            "example": 1
+          }
         }
       ],
       "get": {
@@ -71,15 +123,23 @@
           "200": {
             "description": "Task found",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Task" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
             }
           },
           "404": {
             "description": "Task not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" },
-                "example": { "error": "Task 99 not found" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Task 99 not found"
+                }
               }
             }
           }
@@ -92,7 +152,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateTaskRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskRequest"
+              }
             }
           }
         },
@@ -100,18 +162,36 @@
           "200": {
             "description": "Task updated",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Task" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
             }
           },
           "400": {
             "description": "Invalid request body",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" },
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
                 "examples": {
-                  "noFields": { "value": { "error": "provide title or done to update" } },
-                  "emptyTitle": { "value": { "error": "title must not be empty" } },
-                  "invalidDone": { "value": { "error": "done must be a boolean value" } }
+                  "noFields": {
+                    "value": {
+                      "error": "provide title or done to update"
+                    }
+                  },
+                  "emptyTitle": {
+                    "value": {
+                      "error": "title must not be empty"
+                    }
+                  },
+                  "invalidDone": {
+                    "value": {
+                      "error": "done must be a boolean value"
+                    }
+                  }
                 }
               }
             }
@@ -120,8 +200,12 @@
             "description": "Task not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" },
-                "example": { "error": "Task 99 not found" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Task 99 not found"
+                }
               }
             }
           }
@@ -131,13 +215,58 @@
         "summary": "Delete a task",
         "operationId": "deleteTask",
         "responses": {
-          "204": { "description": "Task deleted, no body returned" },
+          "204": {
+            "description": "Task deleted, no body returned"
+          },
           "404": {
             "description": "Task not found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" },
-                "example": { "error": "Task 99 not found" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Task 99 not found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "summary": "Task counts",
+        "operationId": "getStats",
+        "responses": {
+          "200": {
+            "description": "Aggregate task statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reset": {
+      "post": {
+        "summary": "Reset to seed data",
+        "operationId": "resetTasks",
+        "responses": {
+          "200": {
+            "description": "Seed tasks restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Task"
+                  }
+                }
               }
             }
           }
@@ -149,33 +278,83 @@
     "schemas": {
       "Task": {
         "type": "object",
-        "required": ["id", "title", "done"],
+        "required": [
+          "id",
+          "title",
+          "done"
+        ],
         "properties": {
-          "id": { "type": "integer", "example": 1 },
-          "title": { "type": "string", "example": "Finish DSA assignment" },
-          "done": { "type": "boolean", "example": false }
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "title": {
+            "type": "string",
+            "example": "Finish DSA assignment"
+          },
+          "done": {
+            "type": "boolean",
+            "example": false
+          }
         }
       },
       "CreateTaskRequest": {
         "type": "object",
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "properties": {
-          "title": { "type": "string", "example": "Review pointer arithmetic notes" }
+          "title": {
+            "type": "string",
+            "example": "Review pointer arithmetic notes"
+          }
         }
       },
       "UpdateTaskRequest": {
         "type": "object",
         "minProperties": 1,
         "properties": {
-          "title": { "type": "string", "example": "Review pointer arithmetic notes again" },
-          "done": { "type": "boolean", "example": true }
+          "title": {
+            "type": "string",
+            "example": "Review pointer arithmetic notes again"
+          },
+          "done": {
+            "type": "boolean",
+            "example": true
+          }
         }
       },
       "Error": {
         "type": "object",
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "properties": {
-          "error": { "type": "string" }
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "Stats": {
+        "type": "object",
+        "required": [
+          "total",
+          "done",
+          "open"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "example": 7
+          },
+          "done": {
+            "type": "integer",
+            "example": 3
+          },
+          "open": {
+            "type": "integer",
+            "example": 4
+          }
         }
       }
     }

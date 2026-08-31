@@ -34,7 +34,7 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Task API',
     version: '1.0',
-    endpoints: ['/tasks'],
+    endpoints: ['/tasks', '/stats', '/reset'],
   });
 });
 
@@ -43,6 +43,36 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/tasks', (req, res) => {
+  const { done, search } = req.query;
+  let result = tasks;
+
+  if (done !== undefined) {
+    if (done !== 'true' && done !== 'false') {
+      return res.status(400).json({ error: 'done filter must be true or false' });
+    }
+    const wantDone = done === 'true';
+    result = result.filter((task) => task.done === wantDone);
+  }
+
+  if (search !== undefined) {
+    const word = String(search).trim();
+    if (word === '') {
+      return res.status(400).json({ error: 'search must not be blank' });
+    }
+    const lower = word.toLowerCase();
+    result = result.filter((task) => task.title.toLowerCase().includes(lower));
+  }
+
+  res.json(result);
+});
+
+app.get('/stats', (req, res) => {
+  const done = tasks.filter((task) => task.done).length;
+  res.json({ total: tasks.length, done, open: tasks.length - done });
+});
+
+app.post('/reset', (req, res) => {
+  tasks = SEED_TASKS.map((task) => ({ ...task }));
   res.json(tasks);
 });
 
@@ -117,6 +147,22 @@ app.delete('/tasks/:id', (req, res) => {
   tasks.splice(index, 1);
 
   res.status(204).send();
+});
+
+// Anything that reached here matched no route above.
+app.use((req, res) => {
+  res.status(404).json({ error: `Cannot ${req.method} ${req.path}` });
+});
+
+// express.json() throws when the body is not valid JSON. Without this the
+// client would get Express's default HTML error page instead of our JSON.
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'request body must be valid JSON' });
+  }
+
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, () => {
