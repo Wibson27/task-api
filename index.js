@@ -63,6 +63,56 @@ app.get('/tasks/:id', (req, res) => {
   res.json(task);
 });
 
+app.put('/tasks/:id', (req, res) => {
+  const body = req.body ?? {};
+  const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
+  const hasDone = Object.prototype.hasOwnProperty.call(body, 'done');
+
+  // Check the body before we check the id: a malformed request is the
+  // client's mistake no matter which task it was aimed at.
+  if (!hasTitle && !hasDone) {
+    return res.status(400).json({ error: 'provide title or done to update' });
+  }
+
+  const changes = {};
+
+  if (hasTitle) {
+    if (body.title === null || String(body.title).trim() === '') {
+      return res.status(400).json({ error: 'title must not be empty' });
+    }
+    changes.title = String(body.title).trim();
+  }
+
+  if (hasDone) {
+    if (typeof body.done !== 'boolean') {
+      return res.status(400).json({ error: 'done must be a boolean value' });
+    }
+    changes.done = body.done;
+  }
+
+  const task = findTask(Number(req.params.id));
+
+  if (!task) {
+    return res.status(404).json({ error: `Task ${req.params.id} not found` });
+  }
+
+  Object.assign(task, changes);
+
+  res.json(task);
+});
+
+app.delete('/tasks/:id', (req, res) => {
+  const index = tasks.findIndex((task) => task.id === Number(req.params.id));
+
+  if (index === -1) {
+    return res.status(404).json({ error: `Task ${req.params.id} not found` });
+  }
+
+  tasks.splice(index, 1);
+
+  res.status(204).send();
+});
+
 app.listen(PORT, () => {
   console.log(`Task API listening on http://localhost:${PORT}`);
 });
