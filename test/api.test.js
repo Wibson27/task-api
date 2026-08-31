@@ -1,36 +1,65 @@
 // These tests describe the API contract from Assignment 1 — the endpoints, the
-// status codes, and the exact shape of every response body. Not one of them
-// mentions SQLite, an array, or a table.
+// status codes, and the exact shape of every response body. Almost none of them
+// mention where the data is kept.
 //
-// That is the point. They passed when a JavaScript array was the storage, and
-// they pass now that a file on disk is. If a test suite cannot tell which one
-// is behind the routes, then storage really is an implementation detail and the
-// promise the API makes to its clients survived the migration intact.
+// That is the point. They passed against a JavaScript array (A1), against a
+// SQLite file (A2), and they pass now against a PostgreSQL server in a container
+// (A3). Three completely different storage engines, one unchanged contract. If a
+// test suite cannot tell which engine is behind the routes, then storage really
+// is an implementation detail.
 //
-// Run with: npm test
+// Run with: npm test   (needs the database up: docker compose up -d db)
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
-const fs = require('node:fs');
-const os = require('node:os');
+const { Client } = require('pg');
 
 const PORT = 3210;
 const BASE = `http://localhost:${PORT}`;
-const DB_FILE = path.join(os.tmpdir(), `task-api-test-${process.pid}.db`);
 const ROOT = path.join(__dirname, '..');
 
+// Tests get their own database rather than sharing the development one, so
+// running them never destroys data you were looking at. The name is derived
+// from DATABASE_URL so this follows wherever the real database is.
+const SOURCE_URL = process.env.DATABASE_URL || 'postgres://postgres:dev@localhost:5432/tasks';
+const TEST_DB = 'tasks_test';
+
+function withDatabase(url, name) {
+  const parsed = new URL(url);
+  parsed.pathname = `/${name}`;
+  return parsed.toString();
+}
+
+const TEST_URL = withDatabase(SOURCE_URL, TEST_DB);
+const ADMIN_URL = withDatabase(SOURCE_URL, 'postgres');
+
 let server;
+
+// Dropping and recreating gives every run an identical starting point: the app
+// finds an empty database, creates the table, and seeds exactly three tasks.
+// Without this, yesterday's rows would still be there — the flip side of
+// persistence being the whole feature.
+async function recreateTestDatabase() {
+  const admin = new Client({ connectionString: ADMIN_URL });
+  await admin.connect();
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`);
+    await admin.query(`CREATE DATABASE ${TEST_DB}`);
+  } finally {
+    await admin.end();
+  }
+}
 
 function startServer() {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['index.js'], {
       cwd: ROOT,
-      env: { ...process.env, PORT: String(PORT), DB_FILE },
+      env: { ...process.env, PORT: String(PORT), DATABASE_URL: TEST_URL },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    const timer = setTimeout(() => reject(new Error('server did not start in time')), 15000);
+    const timer = setTimeout(() => reject(new Error('server did not start in time')), 30000);
 
     child.stdout.on('data', (chunk) => {
       if (String(chunk).includes('listening')) {
@@ -54,12 +83,6 @@ function stopServer(child) {
   });
 }
 
-function removeDatabase() {
-  for (const suffix of ['', '-wal', '-shm']) {
-    fs.rmSync(`${DB_FILE}${suffix}`, { force: true });
-  }
-}
-
 async function api(method, url, body) {
   const options = { method };
   if (body !== undefined) {
@@ -68,21 +91,16 @@ async function api(method, url, body) {
   }
   const response = await fetch(BASE + url, options);
   const text = await response.text();
-  return {
-    status: response.status,
-    body: text === '' ? null : JSON.parse(text),
-    raw: text,
-  };
+  return { status: response.status, body: text === '' ? null : JSON.parse(text), raw: text };
 }
 
 before(async () => {
-  removeDatabase();
+  await recreateTestDatabase();
   server = await startServer();
 });
 
 after(async () => {
   await stopServer(server);
-  removeDatabase();
 });
 
 // ---------------------------------------------------------------- meta
@@ -95,10 +113,16 @@ test('GET / describes the API', async () => {
   assert.ok(Array.isArray(body.endpoints));
 });
 
-test('GET /health reports ok', async () => {
+// The one assertion widened since A2. /health now runs a real query against the
+// database and reports what it found, so the body carries a `db` field it did
+// not have before. /health is an operational endpoint, not one of the five CRUD
+// endpoints whose shapes the assignment pins — and a health check that never
+// touches its database is not a health check.
+test('GET /health reports the process AND the database', async () => {
   const { status, body } = await api('GET', '/health');
   assert.equal(status, 200);
-  assert.deepEqual(body, { status: 'ok' });
+  assert.equal(body.status, 'ok');
+  assert.equal(body.db, 'ok');
 });
 
 // ---------------------------------------------------------------- read
@@ -112,9 +136,10 @@ test('GET /tasks returns the three seeded tasks', async () => {
 test('every task has exactly id, title and done — and done is a real boolean', async () => {
   const { body } = await api('GET', '/tasks');
   for (const task of body) {
-    // The contract is the *exact* key set. An extra field would break a client
-    // that round-trips the object, and this is where SQLite's 0/1 would leak
-    // through as a number if the storage layer forgot to map it.
+    // The contract is the *exact* key set. created_at and updated_at exist in
+    // the table but must not appear here. This is also where SQLite's 0/1 used
+    // to leak through as a number if the mapping was forgotten; Postgres has a
+    // real boolean type, so the driver hands one back directly.
     assert.deepEqual(Object.keys(task).sort(), ['done', 'id', 'title']);
     assert.equal(typeof task.id, 'number');
     assert.equal(typeof task.title, 'string');
@@ -135,6 +160,9 @@ test('GET /tasks/:id 404s on an unknown id', async () => {
 });
 
 test('a non-numeric id 404s rather than crashing', async () => {
+  // Number('abc') is NaN. SQLite quietly matched nothing; Postgres would reject
+  // NaN for an integer column, so this proves the route still answers 404
+  // instead of surfacing a driver error as a 500.
   const { status, body } = await api('GET', '/tasks/abc');
   assert.equal(status, 404);
   assert.equal(body.error, 'Task abc not found');
@@ -244,7 +272,7 @@ test('?search= matches on the title and treats % literally', async () => {
   assert.equal(hit.status, 200);
   assert.equal(hit.body.length, 1);
 
-  // If % reached LIKE unescaped this would match every task in the table.
+  // If % reached ILIKE unescaped this would match every task in the table.
   const literal = await api('GET', '/tasks?search=50%25');
   assert.equal(literal.body.length, 1);
   assert.equal(literal.body[0].title, 'Buy 50% cocoa');
@@ -264,7 +292,7 @@ test('GET /stats counts total, done and open', async () => {
 
 // ---------------------------------------------------------------- errors
 
-test('a malformed JSON body is the client\'s fault, not a 500', async () => {
+test("a malformed JSON body is the client's fault, not a 500", async () => {
   const { status, body } = await api('POST', '/tasks', '{oops');
   assert.equal(status, 400);
   assert.equal(body.error, 'request body must be valid JSON');
@@ -281,11 +309,15 @@ test('an unknown route returns a JSON 404', async () => {
 test('POST /reset restores the three seed tasks with ids 1, 2, 3', async () => {
   const { status, body } = await api('POST', '/reset');
   assert.equal(status, 200);
+  // TRUNCATE ... RESTART IDENTITY resets the SERIAL sequence too, so the ids
+  // come back as 1, 2, 3 rather than continuing from wherever they had reached.
   assert.deepEqual(body.map((task) => task.id), [1, 2, 3]);
 });
 
 test('data written by one process is visible to the next one', async () => {
-  // The test Assignment 1 could never have passed.
+  // The test Assignment 1 could never have passed. Here it proves more than it
+  // did in A2: the data does not merely outlive the process, it lives in a
+  // separate server that the process only borrows a connection to.
   const created = await api('POST', '/tasks', { title: 'Survive a restart' });
   const id = created.body.id;
 

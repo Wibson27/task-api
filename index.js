@@ -15,6 +15,18 @@ app.use(express.json());
 // Interactive documentation, generated from the OpenAPI document next to this file.
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
+// A path parameter is always a string, and `Number('abc')` is NaN. SQLite was
+// forgiving about that — NaN simply matched no row and the request 404'd. A
+// Postgres integer column is not: the driver rejects NaN and the request would
+// surface as a 500 for what is plainly a client mistake.
+//
+// So the id is parsed here, in the HTTP layer, before it can reach the storage
+// module. This is the second place the swap from SQLite to Postgres leaked
+// upward, and both leaks are about the new engine being stricter than the old.
+function parseId(raw) {
+  return /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
 app.get('/', (req, res) => {
   res.json({
     name: 'Task API',
@@ -89,7 +101,8 @@ app.post('/tasks', async (req, res) => {
 });
 
 app.get('/tasks/:id', async (req, res) => {
-  const task = await store.findById(Number(req.params.id));
+  const id = parseId(req.params.id);
+  const task = id === null ? undefined : await store.findById(id);
 
   if (!task) {
     return res.status(404).json({ error: `Task ${req.params.id} not found` });
@@ -125,7 +138,8 @@ app.put('/tasks/:id', async (req, res) => {
     changes.done = body.done;
   }
 
-  const task = await store.update(Number(req.params.id), changes);
+  const id = parseId(req.params.id);
+  const task = id === null ? undefined : await store.update(id, changes);
 
   if (!task) {
     return res.status(404).json({ error: `Task ${req.params.id} not found` });
@@ -135,7 +149,8 @@ app.put('/tasks/:id', async (req, res) => {
 });
 
 app.delete('/tasks/:id', async (req, res) => {
-  const deleted = await store.remove(Number(req.params.id));
+  const id = parseId(req.params.id);
+  const deleted = id === null ? false : await store.remove(id);
 
   if (!deleted) {
     return res.status(404).json({ error: `Task ${req.params.id} not found` });
