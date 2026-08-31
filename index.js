@@ -3,6 +3,10 @@ const swaggerUi = require('swagger-ui-express');
 
 const openapi = require('./openapi.json');
 
+// Opening the storage module creates tasks.db, its table, and the seed rows
+// if they are not there yet.
+require('./db');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 

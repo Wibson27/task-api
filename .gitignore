@@ -2,3 +2,9 @@ node_modules/
 npm-debug.log*
 .env
 .DS_Store
+
+# The database is created automatically on first run, so each clone starts
+# with its own file and the three seeded tasks.
+tasks.db
+tasks.db-shm
+tasks.db-wal
