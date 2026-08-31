@@ -1,0 +1,42 @@
+Stage 4 — SQL run by hand against tasks.db
+=========================================
+
+sqlite> SELECT * FROM tasks;
+  1   Finish DSA assignment              done=0
+  2   Email academic advisor             done=1
+  3   Read chapter on virtual memory     done=0
+
+sqlite> SELECT * FROM tasks WHERE done = 1;
+  2   Email academic advisor             done=1
+
+sqlite> SELECT COUNT(*) FROM tasks;
+  3
+
+sqlite> UPDATE tasks SET done = 1;
+  3 rows changed
+
+sqlite> SELECT * FROM tasks;
+  1   Finish DSA assignment              done=1
+  2   Email academic advisor             done=1
+  3   Read chapter on virtual memory     done=1
+
+sqlite> DELETE FROM tasks WHERE done = 1;
+  3 rows deleted
+
+sqlite> SELECT COUNT(*) FROM tasks;
+  0
+
+Note on UPDATE without a WHERE clause
+-------------------------------------
+`UPDATE tasks SET done = 1;` changed all 3 rows, not one. SQL applies a
+statement to every row the WHERE clause selects, and no WHERE clause selects
+everything. The same omission on DELETE empties the table. There is no undo.
+
+Query plans
+-----------
+  WHERE done = 1        -> SEARCH tasks USING INDEX idx_tasks_done (done=?)
+  WHERE title LIKE '%x%' -> SCAN tasks
+
+The done filter seeks into idx_tasks_done. The LIKE search scans every row,
+because a leading % wildcard gives an index no prefix to seek on — which is
+why there is deliberately no index on title.
