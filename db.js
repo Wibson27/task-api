@@ -129,6 +129,61 @@ async function init() {
   return { attempts, seeded };
 }
 
+// Selecting the three columns by name rather than `SELECT *` is what pins the
+// response shape. created_at and updated_at exist in the table but are
+// deliberately not part of the API contract, exactly as in A2 — adding fields
+// would change response shapes the previous assignments promised to keep.
+const COLUMNS = 'id, title, done';
+
+async function findAll() {
+  const { rows } = await pool.query(`SELECT ${COLUMNS} FROM tasks ORDER BY id`);
+  return rows;
+}
+
+// LIKE treats % and _ as wildcards, so a search for "50%" would otherwise match
+// far more than it should. Escaping them and declaring the escape character
+// makes the user's text match literally.
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+// The WHERE clause is assembled from fixed fragments this file owns, while every
+// user-supplied value travels as a numbered placeholder. Building the SQL
+// *structure* in JavaScript is safe; interpolating a user's *value* into it is
+// what gets databases dropped.
+//
+// ILIKE is Postgres's case-insensitive LIKE. SQLite's LIKE was already
+// case-insensitive for ASCII, so this keeps the search behaving as it did
+// without needing to lower-case anything.
+async function listTasks({ done, search, sort } = {}) {
+  const where = [];
+  const params = [];
+
+  if (done !== undefined) {
+    params.push(done);
+    where.push(`done = $${params.length}`);
+  }
+
+  if (search !== undefined) {
+    params.push(`%${escapeLike(search)}%`);
+    where.push(`title ILIKE $${params.length}`);
+  }
+
+  const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const order = sort === 'title' ? 'ORDER BY lower(title)' : 'ORDER BY id';
+
+  const { rows } = await pool.query(`SELECT ${COLUMNS} FROM tasks ${clause} ${order}`, params);
+  return rows;
+}
+
+// $1 is a bound parameter. The value travels to Postgres separately from the SQL
+// text and is never parsed as SQL, so an id of "1; DROP TABLE tasks" is looked
+// up as a meaningless string rather than executed.
+async function findById(id) {
+  const { rows } = await pool.query(`SELECT ${COLUMNS} FROM tasks WHERE id = $1`, [id]);
+  return rows[0];
+}
+
 // A health check that does not touch the database is theatre: the process can be
 // perfectly alive while every request that matters fails. This runs a real query.
 async function ping() {
@@ -145,6 +200,9 @@ async function close() {
 module.exports = {
   init,
   isSeeded: () => seeded,
+  findAll,
+  listTasks,
+  findById,
   ping,
   close,
 };
