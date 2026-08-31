@@ -1,0 +1,114 @@
+A3 — measurements taken while containerizing the stack
+======================================================
+
+1. WHY VOLUMES EXIST (the mortality experiment, database edition)
+-----------------------------------------------------------------
+Postgres run with NO volume mounted:
+
+  rows before removing the container:
+    1  I have no volume
+    2  I will not survive
+
+  $ docker rm -f nodb
+  $ docker run --name nodb ... postgres:18      (fresh container, no volume)
+
+  rows in the fresh container:
+    ERROR:  relation "tasks" does not exist
+
+Not just the rows — the table itself is gone. A container's filesystem is a
+throwaway layer that is deleted with the container, and Postgres had written
+its entire data directory into that layer. Meanwhile the composed stack, which
+mounts a named volume, still reported 5 rows after a full `docker compose down`
+and `up`. A volume is storage that lives outside any container, which is the
+only reason a containerized database is not a memory-backed one with extra
+steps.
+
+
+2. IMAGE SIZE: SINGLE-STAGE vs MULTI-STAGE
+-------------------------------------------
+  taskapi:single-stage    272 MB
+  taskapi:multi-stage     258 MB      (-14 MB, about 5%)
+
+Honest reading: that is a small win, and the layer breakdown says why.
+
+  237 MB   node:24-alpine base image
+   17.4MB  node_modules
+    5.5MB  yarn/build tooling in the base
+   53 kB   our own source (index.js, db.js, openapi.json, package.json)
+
+92% of the image is the Node base. The 14 MB saved is npm's cache, which stays
+behind in the build stage. Multi-stage builds pay off enormously when the build
+step produces something much smaller than its inputs — a compiled Go binary, a
+bundled front-end, native modules that need gcc to install but not to run. Here
+the dependencies are pure JavaScript and identical in both stages, so the only
+thing to leave behind is the cache. The real lever for this image would be a
+smaller base, not a smarter build.
+
+The multi-stage version is kept anyway for a second reason: it ends with
+USER node, so the app does not run as root inside the container.
+
+  $ docker compose exec api whoami
+  node
+
+
+3. WHAT THE INDEX ACTUALLY BUYS (200,000 rows, 4,000 of them done)
+-------------------------------------------------------------------
+BEFORE  — SELECT * FROM bench WHERE done = true
+
+  Seq Scan on bench  (cost=0.00..3274.00 rows=3953)
+    Filter: done
+    Rows Removed by Filter: 196000
+    Execution Time: 4.706 ms
+
+AFTER   — CREATE INDEX idx_bench_done ON bench (done)
+
+  Index Scan using idx_bench_done on bench  (cost=0.29..508.95 rows=4040)
+    Index Cond: (done = true)
+    Execution Time: 3.495 ms
+
+The plan changed from reading all 200,000 rows and discarding 196,000, to
+seeking directly to the 4,000 that match. Planner cost fell 6.4x. Wall time
+only fell from 4.7 ms to 3.5 ms, because the matching rows are still scattered
+across the table and have to be fetched from the heap either way — at this size
+the whole table is already in memory, so the scan was never the expensive part.
+The index earns its keep as the table grows and as the matching fraction
+shrinks, not on a 200k-row table sitting in cache.
+
+AND THE ONE AN INDEX CANNOT HELP — title ILIKE '%12345%'
+
+  Seq Scan on bench  (cost=0.00..3774.00 rows=20)
+    Filter: (title ~~* '%12345%')
+    Rows Removed by Filter: 199988
+    Execution Time: 45.255 ms
+
+Ten times slower than the indexed filter, and still a sequential scan. A b-tree
+index sorts by prefix, and a leading % wildcard means there is no prefix to seek
+on. This is why the schema indexes `done` and deliberately does not index
+`title` — making that query fast needs a different tool (a trigram index via
+pg_trgm, or full-text search), not another b-tree.
+
+
+4. TWO PLACES THE STORAGE SWAP LEAKED UPWARD
+---------------------------------------------
+The claim from A2 was that storage is an implementation detail. Moving to
+Postgres tested that claim and found two exceptions, both worth knowing.
+
+a) Synchronous to asynchronous.
+   better-sqlite3 is an in-process library reading a local file, so its calls
+   return values directly. `pg` talks to another process over a socket, so
+   every call returns a promise. Every route handler had to become async and
+   every store call needed await. Async is viral in JavaScript: no amount of
+   layering hides it, because it changes the *type* every caller sees. The
+   layered architecture in A15 will not fix this either — the boundary is real,
+   but it is not a boundary async can be hidden behind.
+
+b) The new engine is stricter about types.
+   `GET /tasks/abc` produces Number('abc') === NaN. SQLite matched no row and
+   the request 404'd. Postgres rejects NaN for an integer column, the driver
+   throws, and the request became a 500 — a server error for what is plainly a
+   client mistake. The contract test suite caught this immediately; the fix was
+   to parse the id in the HTTP layer before it can reach the database.
+
+Neither leak is a failure of the idea. Both are the useful kind of surprise:
+the tests named the exact behaviour that changed, which is what the tests are
+for.
