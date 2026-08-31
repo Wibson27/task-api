@@ -1,3 +1,7 @@
+$ docker compose up -d
+ Container a1-task-api-db-1   Healthy
+ Container a1-task-api-api-1  Started
+
 $ curl -i -X POST http://localhost:3000/tasks \
     -H "Content-Type: application/json" \
     -d '{"title":"Review pointer arithmetic notes"}'
@@ -48,3 +52,12 @@ Keep-Alive: timeout=5
 
 {"error":"Task 4 not found"}
 
+$ curl -i http://localhost:3000/health
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 25
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"status":"ok","db":"ok"}
