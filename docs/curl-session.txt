@@ -1,0 +1,49 @@
+$ curl -i -X POST http://localhost:3000/tasks \
+    -H "Content-Type: application/json" \
+    -d '{"title":"Buy milk"}'
+HTTP/1.1 201 Created
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 40
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":4,"title":"Buy milk","done":false}
+
+$ curl -i http://localhost:3000/tasks/4
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 40
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":4,"title":"Buy milk","done":false}
+
+$ curl -i -X PUT http://localhost:3000/tasks/4 \
+    -H "Content-Type: application/json" -d '{"done":true}'
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 39
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":4,"title":"Buy milk","done":true}
+
+$ curl -i -X DELETE http://localhost:3000/tasks/4
+HTTP/1.1 204 No Content
+X-Powered-By: Express
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+
+$ curl -i http://localhost:3000/tasks/4
+HTTP/1.1 404 Not Found
+X-Powered-By: Express
+Content-Type: application/json; charset=utf-8
+Content-Length: 28
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"Task 4 not found"}

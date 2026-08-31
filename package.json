@@ -1,0 +1,16 @@
+{
+  "name": "task-api",
+  "version": "1.0.0",
+  "description": "In-memory CRUD API for tasks. FlyRank Internship, Backend Track, Week 2, Assignment A1.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "author": "Rifqi Wibisono",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "swagger-ui-express": "^5.0.1"
+  }
+}
