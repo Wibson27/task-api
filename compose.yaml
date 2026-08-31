@@ -1,0 +1,43 @@
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Inside the compose network the database is reachable by its service
+      # name, `db`, not localhost — each container has its own localhost.
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-dev}@db:5432/tasks
+      PORT: 3000
+    depends_on:
+      db:
+        # Waiting for `service_started` would only mean the container exists.
+        # Postgres takes a few seconds after that before it accepts connections,
+        # so we wait for the healthcheck below to pass instead.
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    # Pinned, not `postgres:latest`. A major version bump can change the on-disk
+    # layout — Postgres 18 moved it — and an unpinned image means a future
+    # `docker compose up` could fail to read the data written by this one.
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+      POSTGRES_DB: tasks
+    ports:
+      # Exposed so psql or a GUI on the host can inspect the same database.
+      - "5432:5432"
+    volumes:
+      # Postgres 18 stores data under /var/lib/postgresql/<version>, so the
+      # mount goes one level up from the path older versions used.
+      - taskdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tasks"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  # A named volume. The rows live here, outside any container, which is what
+  # lets `docker compose down` and `up` keep the data.
+  taskdata:

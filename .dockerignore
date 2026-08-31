@@ -1,0 +1,19 @@
+# Build context hygiene: everything here is either rebuilt inside the image,
+# irrelevant to it, or must never be baked into it.
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.dockerignore
+
+# Secrets. .env must never end up in an image — images get pushed to registries.
+.env
+.env.*
+!.env.example
+
+# Artefacts from the earlier assignments and the docs folder.
+tasks.db
+tasks.db-*
+docs
+test
+README.md
