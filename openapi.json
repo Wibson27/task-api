@@ -3,7 +3,7 @@
   "info": {
     "title": "Task API",
     "version": "1.0",
-    "description": "In-memory CRUD API for tasks. Data is held in a plain array and is lost when the server restarts."
+    "description": "CRUD API for tasks, stored in a SQLite database (tasks.db). Data survives a server restart."
   },
   "servers": [
     {
@@ -59,6 +59,17 @@
             "schema": {
               "type": "string",
               "example": "memory"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Order the results. Only \"title\" is accepted; the default is by id.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "title"
+              ]
             }
           }
         ]
