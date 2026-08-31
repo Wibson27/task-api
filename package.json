@@ -1,11 +1,12 @@
 {
   "name": "task-api",
   "version": "1.0.0",
-  "description": "In-memory CRUD API for tasks. FlyRank Internship, Backend Track, Week 2, Assignment A1.",
+  "description": "CRUD API for tasks, backed by SQLite. FlyRank Internship, Backend Track, Weeks 2-3, Assignments A1 and A2.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "test": "node --test"
   },
   "author": "Rifqi Wibisono",
   "license": "ISC",
