@@ -1,9 +1,15 @@
 const express = require('express');
+const swaggerUi = require('swagger-ui-express');
+
+const openapi = require('./openapi.json');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Interactive documentation, generated from the OpenAPI document next to this file.
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapi));
 
 // The "database" for now: a plain array. Everything in it dies when the
 // process does — that is the whole point of Week 3.
