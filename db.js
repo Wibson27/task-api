@@ -63,4 +63,32 @@ function seedIfEmpty() {
 migrate();
 const seeded = seedIfEmpty();
 
-module.exports = { db, DB_FILE, seeded };
+// SQLite has no boolean type, so `done` arrives from the driver as the number
+// 0 or 1. Assignment 1 promised clients a real JSON boolean, and that promise
+// is the thing this assignment must not break — so every row is mapped on the
+// way out. This one function is the reason the API's responses are unchanged.
+function toTask(row) {
+  if (!row) return undefined;
+  return { id: row.id, title: row.title, done: row.done === 1 };
+}
+
+// Statements are prepared once, here, rather than on every request. Preparing
+// compiles the SQL text into SQLite's bytecode; reusing the prepared statement
+// skips that parse and plan on every subsequent call.
+const statements = {
+  findAll: db.prepare('SELECT id, title, done FROM tasks ORDER BY id'),
+  findById: db.prepare('SELECT id, title, done FROM tasks WHERE id = ?'),
+};
+
+function findAll() {
+  return statements.findAll.all().map(toTask);
+}
+
+// The `?` is a bound parameter. The value travels to SQLite separately from
+// the SQL text, so it is never parsed as SQL — an id of "1; DROP TABLE tasks"
+// is looked up as a meaningless string rather than executed.
+function findById(id) {
+  return toTask(statements.findById.get(id));
+}
+
+module.exports = { db, DB_FILE, seeded, findAll, findById };

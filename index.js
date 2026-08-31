@@ -5,7 +5,7 @@ const openapi = require('./openapi.json');
 
 // Opening the storage module creates tasks.db, its table, and the seed rows
 // if they are not there yet.
-require('./db');
+const store = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,7 +48,7 @@ app.get('/health', (req, res) => {
 
 app.get('/tasks', (req, res) => {
   const { done, search } = req.query;
-  let result = tasks;
+  let result = store.findAll();
 
   if (done !== undefined) {
     if (done !== 'true' && done !== 'false') {
@@ -94,7 +94,7 @@ app.post('/tasks', (req, res) => {
 });
 
 app.get('/tasks/:id', (req, res) => {
-  const task = findTask(Number(req.params.id));
+  const task = store.findById(Number(req.params.id));
 
   if (!task) {
     return res.status(404).json({ error: `Task ${req.params.id} not found` });
