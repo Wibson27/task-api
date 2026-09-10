@@ -36,6 +36,11 @@ services:
       interval: 3s
       timeout: 3s
       retries: 15
+    # The same policy the api service has. Without it, restarting Docker brings
+    # the api back but leaves the database down, and the api then restart-loops
+    # against a host that will never resolve. A restart policy on one half of a
+    # pair that depends on the other is worse than none at all.
+    restart: unless-stopped
 
 volumes:
   # A named volume. The rows live here, outside any container, which is what
