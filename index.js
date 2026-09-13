@@ -6,7 +6,7 @@ const openapi = require('./openapi.json');
 // The only module that knows SQL exists. Which engine is behind it — an array,
 // a SQLite file, a Postgres server — is not this file's business.
 const store = require('./db');
-const { checkConnection } = require('./supabase');
+const { supabase, checkConnection } = require('./supabase');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -158,6 +158,70 @@ app.delete('/tasks/:id', async (req, res) => {
   }
 
   res.status(204).send();
+});
+
+// ------------------------------------------------------------------ auth
+//
+// These routes hold no passwords and hash nothing. They check that the request
+// is shaped correctly, pass the credentials to Supabase, and relay the answer.
+// Supabase stores the account, compares the password against its own hash, and
+// signs the token.
+
+function readCredentials(body) {
+  const { email, password } = body ?? {};
+
+  if (typeof email !== 'string' || email.trim() === '') {
+    return { error: 'email is required' };
+  }
+  if (typeof password !== 'string' || password === '') {
+    return { error: 'password is required' };
+  }
+
+  // The password is deliberately not trimmed. Leading or trailing spaces are
+  // characters the user typed, and silently removing them would make the stored
+  // password different from the one they chose.
+  return { email: email.trim(), password };
+}
+
+app.post('/auth/signup', async (req, res) => {
+  const credentials = readCredentials(req.body);
+  if (credentials.error) {
+    return res.status(400).json({ error: credentials.error });
+  }
+
+  const { data, error } = await supabase.auth.signUp(credentials);
+
+  // Supabase answers a 4xx for problems with what the client sent — an email
+  // already registered, a password too short. Those are the client's to fix,
+  // so the status and message pass through. Anything else means Supabase
+  // itself failed, which is 502: this server worked, the one behind it did not.
+  if (error) {
+    const status = error.status >= 400 && error.status < 500 ? error.status : 502;
+    return res.status(status).json({ error: error.message });
+  }
+
+  // Only the fields a client needs. The full user object carries internal
+  // metadata and identity-provider details that have no reason to leave here.
+  const { id, email, created_at } = data.user;
+  res.status(201).json({ user: { id, email, created_at } });
+});
+
+app.post('/auth/login', async (req, res) => {
+  const credentials = readCredentials(req.body);
+  if (credentials.error) {
+    return res.status(400).json({ error: credentials.error });
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword(credentials);
+
+  // One message for "no such account" and "wrong password" alike. Different
+  // messages would let anyone test which email addresses are registered here.
+  if (error) {
+    return res.status(401).json({ error: 'Invalid login credentials' });
+  }
+
+  const { access_token, refresh_token, expires_in, token_type } = data.session;
+  res.json({ access_token, refresh_token, expires_in, token_type });
 });
 
 // Anything that reached here matched no route above.
