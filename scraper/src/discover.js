@@ -1,7 +1,7 @@
 // Crawling: find the catalogue pages and the book links on them. Nothing here
 // reads a book's details — that is extraction, a separate step.
 const cheerio = require('cheerio');
-const { getPage } = require('./http');
+const { getPageWithRetry } = require('./http');
 
 const FIRST_CATALOGUE_PAGE = 'https://books.toscrape.com/catalogue/page-1.html';
 const MAX_CATALOGUE_PAGES = 3;
@@ -35,18 +35,23 @@ function parseCatalogue(html, pageUrl) {
 // Follows the site's own "next" links rather than generating page-2.html and
 // page-3.html from a pattern. The site decides what its pages are; this code
 // only decides how many to read.
+//
+// Unlike a book page, a catalogue page that cannot be fetched is not skipped.
+// Without it the run cannot know which books exist, so the error is left to
+// stop the run — and the run report still records what happened.
 async function discoverBooks({ onPage } = {}) {
   const pages = [];
   const discovered = [];
   let url = FIRST_CATALOGUE_PAGE;
 
   while (url && pages.length < MAX_CATALOGUE_PAGES) {
-    const page = await getPage(url);
+    const page = await getPageWithRetry(url);
     const { bookUrls, nextUrl } = parseCatalogue(page.html, url);
 
-    pages.push({ url, source: page.source, books: bookUrls.length });
+    const info = { url, source: page.source, attempts: page.attempts, books: bookUrls.length };
+    pages.push(info);
     for (const bookUrl of bookUrls) discovered.push({ url: bookUrl, sourcePage: url });
-    if (onPage) onPage({ url, source: page.source, books: bookUrls.length });
+    if (onPage) onPage(info);
 
     url = nextUrl;
   }
