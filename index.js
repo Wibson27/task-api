@@ -224,6 +224,48 @@ app.post('/auth/login', async (req, res) => {
   res.json({ access_token, refresh_token, expires_in, token_type });
 });
 
+// ------------------------------------------------------------------ gates
+
+app.get('/public/info', (req, res) => {
+  res.json({ message: 'Welcome stranger! This info is public.' });
+});
+
+// The token travels in one header, formatted as `Authorization: Bearer <token>`.
+// The scheme name is case-insensitive under the HTTP spec, so "bearer" is as
+// valid as "Bearer". Anything else — no header, a different scheme, a scheme
+// with nothing after it, or extra words — counts as no token at all.
+function extractBearerToken(header) {
+  if (typeof header !== 'string') return null;
+
+  const parts = header.trim().split(/\s+/);
+  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer' || parts[1] === '') {
+    return null;
+  }
+
+  return parts[1];
+}
+
+// RFC 6750 asks every 401 on a bearer-protected resource to include this
+// header. It tells the client which scheme to retry with, rather than leaving it
+// to guess why it was refused.
+function requireTokenResponse(res) {
+  res.set('WWW-Authenticate', 'Bearer realm="task-api"');
+  return res.status(401).json({ error: 'Access token required' });
+}
+
+app.get('/protected/profile', (req, res) => {
+  const token = extractBearerToken(req.get('Authorization'));
+
+  if (!token) {
+    return requireTokenResponse(res);
+  }
+
+  // Stage 2 only checks that a token was presented. It does not yet check that
+  // the token is genuine, so any string after "Bearer " gets through here.
+  // Stage 3 closes that hole.
+  res.json({ message: 'Token presented. It has not been verified yet.' });
+});
+
 // Anything that reached here matched no route above.
 app.use((req, res) => {
   res.status(404).json({ error: `Cannot ${req.method} ${req.path}` });
