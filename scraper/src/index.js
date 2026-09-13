@@ -1,6 +1,17 @@
-// Entry point for the polite scraper. Stage 0 only fixes the target and the
-// scope; fetching starts in Stage 1.
-const TARGET = 'https://books.toscrape.com/';
-const CATALOGUE_PAGES = 3;
+const path = require('node:path');
+const { getPage } = require('./http');
 
-console.log(`target=${TARGET} catalogue_pages=${CATALOGUE_PAGES}`);
+const FIRST_CATALOGUE_PAGE = 'https://books.toscrape.com/catalogue/page-1.html';
+
+async function main() {
+  const page = await getPage(FIRST_CATALOGUE_PAGE);
+  const label = page.source === 'cache' ? 'CACHE HIT' : 'FETCH';
+
+  // The size and where it was saved — never the HTML itself.
+  console.log(`${label} ${FIRST_CATALOGUE_PAGE} bytes=${page.bytes} file=${path.basename(page.file)}`);
+}
+
+main().catch((err) => {
+  console.error(`${err.name}: ${err.message}${err.url ? ` (${err.url})` : ''}`);
+  process.exitCode = 1;
+});
