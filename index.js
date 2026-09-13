@@ -6,7 +6,7 @@ const openapi = require('./openapi.json');
 // The only module that knows SQL exists. Which engine is behind it — an array,
 // a SQLite file, a Postgres server — is not this file's business.
 const store = require('./db');
-const { supabase, checkConnection } = require('./supabase');
+const { supabase, createAuthClient, checkConnection } = require('./supabase');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -189,7 +189,9 @@ app.post('/auth/signup', async (req, res) => {
     return res.status(400).json({ error: credentials.error });
   }
 
-  const { data, error } = await supabase.auth.signUp(credentials);
+  // A throwaway client: signUp leaves a session inside whatever client makes
+  // the call, and the shared one must never hold anybody's. See supabase.js.
+  const { data, error } = await createAuthClient().auth.signUp(credentials);
 
   // Supabase answers a 4xx for problems with what the client sent — an email
   // already registered, a password too short. Those are the client's to fix,
@@ -218,7 +220,9 @@ app.post('/auth/login', async (req, res) => {
     return res.status(400).json({ error: credentials.error });
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword(credentials);
+  // Same reason as signup: the session this creates stays in a client nothing
+  // else will ever use.
+  const { data, error } = await createAuthClient().auth.signInWithPassword(credentials);
 
   if (error) {
     // A 4xx means Supabase checked the credentials and refused them. One message
@@ -267,7 +271,10 @@ function requireTokenResponse(res) {
   return res.status(401).json({ error: 'Access token required' });
 }
 
-app.get('/protected/profile', async (req, res) => {
+// The guard. Any route that lists it runs this first, and the route's own body
+// only runs if the guard calls next(). Written once, so there is no protected
+// route that forgot the check — the failure mode of pasting it into each one.
+async function requireAuth(req, res, next) {
   const token = extractBearerToken(req.get('Authorization'));
 
   if (!token) {
@@ -298,8 +305,47 @@ app.get('/protected/profile', async (req, res) => {
     return res.status(502).json({ error: 'Could not verify token with the identity provider' });
   }
 
-  const { id, email, created_at } = data.user;
+  // Attached to the request object, which Express passes unchanged to every
+  // later handler for this request. Routes read req.user instead of repeating
+  // the lookup. The raw token is kept too, because logout has to hand it back
+  // to Supabase to say which session to end.
+  req.user = data.user;
+  req.accessToken = token;
+  next();
+}
+
+app.get('/protected/profile', requireAuth, (req, res) => {
+  const { id, email, created_at } = req.user;
   res.json({ id, email, created_at });
+});
+
+// No auth code at all. Listing requireAuth is the entire difference between
+// this route and a public one — which is the point of the middleware.
+app.get('/protected/dashboard', requireAuth, (req, res) => {
+  res.json({ message: `Welcome back, ${req.user.email}.`, user_id: req.user.id });
+});
+
+// Protected by the same guard, so only a genuine session can end itself.
+//
+// Not auth.signOut(). That call takes no token: it ends whichever session the
+// client happens to be holding, and a shared server client holds the session of
+// whoever logged in most recently. It would log out the wrong person. This call
+// is told exactly which token to revoke.
+//
+// Scope 'local' ends only the session this token belongs to. The SDK's default
+// is 'global', which ends every session the user has — logging out on a laptop
+// would also sign them out on their phone, which is not what "log out" means.
+app.post('/auth/logout', requireAuth, async (req, res) => {
+  const { error } = await supabase.auth.admin.signOut(req.accessToken, 'local');
+
+  // A 4xx means the session was already gone by the time the call arrived,
+  // which is the outcome logout wanted anyway. Only a failure to reach Supabase
+  // at all is worth reporting, because then the session is still alive.
+  if (error && !(error.status >= 400 && error.status < 500)) {
+    return res.status(502).json({ error: 'Could not reach the identity provider' });
+  }
+
+  res.status(204).send();
 });
 
 // Anything that reached here matched no route above.

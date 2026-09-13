@@ -12,12 +12,6 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   );
 }
 
-// persistSession: false because this is a server. The SDK's default is to keep
-// the logged-in session in local storage and reuse it for later calls, which is
-// right for a browser holding one user's session and wrong for a process serving
-// many users: the second person to log in would silently overwrite the first.
-// Every request here carries its own token instead.
-//
 // Every request the SDK makes goes through fetchWithTimeout. Without it, a
 // Supabase that accepts connections but stops replying leaves each protected
 // request hanging for as long as Supabase does: the client waits, the Node
@@ -32,10 +26,38 @@ function fetchWithTimeout(input, init = {}) {
   return fetch(input, { ...init, signal });
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+const CLIENT_OPTIONS = {
   auth: { persistSession: false, autoRefreshToken: false },
   global: { fetch: fetchWithTimeout },
-});
+};
+
+// The SDK is built for a browser, where one client belongs to one user. After
+// signInWithPassword or signUp it keeps that user's session inside the client
+// object and quietly uses it for any later call that does not name a token.
+//
+// persistSession: false does NOT prevent that. It only stops the session being
+// written to storage; the client still holds it in memory. Measured: two users
+// log in through one client, X then Y, and the client is left holding Y's
+// session. A call to auth.signOut() on it then logs out Y — not X, who asked.
+// On a server handling many people, a shared client ends up acting as whoever
+// logged in last.
+//
+// So there are two kinds of client here.
+//
+// `supabase` is shared, and is only used for calls that are told exactly which
+// token to act on: getUser(token) and admin.signOut(token). Those never read
+// or store a session, so sharing is safe.
+//
+// createAuthClient() makes a fresh, throwaway client for every signup and login,
+// the two calls that store a session. The session is kept in that one object,
+// which nothing else ever touches and which is garbage-collected once the
+// request finishes. Creating a client opens no connection, so this costs almost
+// nothing.
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, CLIENT_OPTIONS);
+
+function createAuthClient() {
+  return createClient(SUPABASE_URL, SUPABASE_KEY, CLIENT_OPTIONS);
+}
 
 // createClient opens no connection, so "connected" has to be checked. The auth
 // health endpoint answers without needing a user.
@@ -54,4 +76,4 @@ async function checkConnection(timeoutMs = 3000) {
   }
 }
 
-module.exports = { supabase, checkConnection };
+module.exports = { supabase, createAuthClient, checkConnection };
