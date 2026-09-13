@@ -25,7 +25,14 @@ ENV NODE_ENV=production
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
-COPY index.js db.js openapi.json ./
+
+# Every top-level source file, by pattern rather than by name. This line used
+# to list index.js, db.js and openapi.json one by one, so when supabase.js was
+# added the image built without it and crashed on require('./supabase') — while
+# every local run and every test passed, because none of them run the image.
+# A pattern picks up new modules automatically. test/ and docs/ are not matched
+# by *.js at this level, and .dockerignore excludes them regardless.
+COPY *.js openapi.json ./
 
 # The node image ships a non-root `node` user. Running as root inside a
 # container is a needless risk: a process that escapes its boundary should not
