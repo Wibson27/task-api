@@ -53,12 +53,33 @@ function cacheFileFor(url) {
 // 600 ms to answer, the next request would go out the instant that answer
 // arrived, with no pause at all. Counting from the end guarantees the site gets
 // real quiet between one request and the next, however slowly it answers.
-let lastRequestFinishedAt = 0;
+//
+// Measured with performance.now(), not Date.now(). Date.now() is the wall clock:
+// whole milliseconds, and the operating system may adjust it. performance.now()
+// only ever moves forward and has sub-millisecond precision, which is what timing
+// an interval needs. Date.now() is still right for fetchedAt below, which is a
+// moment in time rather than a duration.
+//
+// Starts at -Infinity so the very first request is not delayed. performance.now()
+// counts from process start, so a starting value of 0 would make the first
+// request wait out the remainder of 500 ms for no reason.
+let lastRequestFinishedAt = -Infinity;
 
+// Sleeps until the quiet period has genuinely passed, re-reading the clock after
+// every wake-up instead of trusting that one timer landed on time.
+//
+// Why: a live run of 63 requests measured one quiet period of 499 ms among 62,
+// with the earlier version that slept once and then went ahead. The cause was not
+// reproduced. Timers waking early, synchronous work before the timer, and the
+// wall clock being adjusted were each tested in isolation and none produced an
+// early wake-up. So this does not rely on knowing the cause: whatever makes a
+// single timer come back short, the loop measures again and sleeps for the
+// remainder. The guarantee becomes a property of this function, not of the timer.
 async function politeDelay(minQuietMs) {
-  const wait = lastRequestFinishedAt + minQuietMs - Date.now();
-  if (wait > 0) {
+  let wait = lastRequestFinishedAt + minQuietMs - performance.now();
+  while (wait > 0) {
     await new Promise((resolve) => setTimeout(resolve, wait));
+    wait = lastRequestFinishedAt + minQuietMs - performance.now();
   }
 }
 
@@ -112,10 +133,10 @@ async function getPage(url, { minQuietMs = MIN_DELAY_MS } = {}) {
     throw toFetchError(err, url);
   } finally {
     // A failed request still reached the site, so it still starts the quiet period.
-    lastRequestFinishedAt = Date.now();
+    lastRequestFinishedAt = performance.now();
   }
 
-  const fetchedAt = new Date().toISOString();
+  const fetched = new Date();
 
   // Only a complete, successful response is cached. A failure must never be
   // saved: it would be served from disk forever after, and the page would look
@@ -123,7 +144,18 @@ async function getPage(url, { minQuietMs = MIN_DELAY_MS } = {}) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.writeFileSync(file, html, 'utf8');
 
-  return { html, source: 'network', bytes: Buffer.byteLength(html), file, fetchedAt };
+  // The file's save time is set to exactly the moment recorded for this fetch.
+  // A later cache hit reads fetchedAt back from the save time, so without this
+  // the two would disagree by however long the write took: a live run measured
+  // the cached value 1-10 ms later on 56 of 60 records. The same page must carry
+  // the same receipt whether it came from the network or from disk.
+  //
+  // This relies on the save time surviving, which it does through this code and
+  // through fs.copyFileSync, but not through tools that reset it — a plain `cp`
+  // stamps the copy with the time it was copied.
+  fs.utimesSync(file, fetched, fetched);
+
+  return { html, source: 'network', bytes: Buffer.byteLength(html), file, fetchedAt: fetched.toISOString() };
 }
 
 // Worth asking again: a timeout, or a server error (5xx). Both can be momentary.
