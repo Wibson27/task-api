@@ -1,49 +1,73 @@
 const { discoverBooks } = require('./discover');
 const { getPage } = require('./http');
 const { extractBook } = require('./extract');
+const { normalizeRecord } = require('./normalize');
+const { validateBook } = require('./schema');
+const { dedupeByUrl, writeJsonAtomic } = require('./store');
 
 function label(source) {
   return source === 'cache' ? 'CACHE HIT' : 'FETCH    ';
 }
 
 async function main() {
+  // fetch -> extract
   const { pages, discovered, unique } = await discoverBooks({
     onPage: ({ url, source, books }) => console.log(`${label(source)} ${url} books=${books}`),
   });
-
   console.log(`catalogue_pages=${pages.length} discovered=${discovered.length} unique_urls=${unique.length}`);
 
-  const records = [];
+  const rawRecords = [];
   let fetched = 0;
   let cacheHits = 0;
 
-  for (const [i, book] of unique.entries()) {
+  for (const book of unique) {
     const page = await getPage(book.url);
-    if (page.source === 'network') fetched += 1;
-    else cacheHits += 1;
-
-    records.push(
-      extractBook(page.html, {
-        productUrl: book.url,
-        sourcePage: book.sourcePage,
-        fetchedAt: page.fetchedAt,
-      }),
+    if (page.source === 'network') {
+      fetched += 1;
+      console.log(`FETCH     ${book.url}`);
+    } else {
+      cacheHits += 1;
+    }
+    rawRecords.push(
+      extractBook(page.html, { productUrl: book.url, sourcePage: book.sourcePage, fetchedAt: page.fetchedAt }),
     );
+  }
 
-    const done = i + 1;
-    if (page.source === 'network' || done === unique.length) {
-      console.log(`${label(page.source)} detail ${done}/${unique.length}`);
+  // normalize -> validate. Every record is checked before it can be stored.
+  const valid = [];
+  const errors = [];
+
+  for (const raw of rawRecords) {
+    const record = normalizeRecord(raw);
+    const result = validateBook(record);
+
+    if (result.ok) {
+      valid.push(result.data);
+    } else {
+      errors.push({
+        product_url: raw.product_url,
+        reason: result.reason,
+        issues: result.issues,
+        record,
+      });
     }
   }
 
-  console.log('\nOne complete raw record:');
-  console.log(JSON.stringify(records[0], null, 2));
+  // store
+  const { unique: books, duplicates } = dedupeByUrl(valid);
 
-  const missingDescription = records.filter((r) => r.description === null).length;
+  // Both files are written on every run, errors.json included when it is
+  // empty. Otherwise an errors.json left over from an earlier failed run would
+  // sit next to a clean books.json and look like a current problem.
+  const booksFile = writeJsonAtomic('books.json', books);
+  const errorsFile = writeJsonAtomic('errors.json', errors);
+
   console.log(
-    `\ndetail_pages=${records.length} fetched=${fetched} cache_hits=${cacheHits} ` +
-      `null_descriptions=${missingDescription}`,
+    `detail_pages=${rawRecords.length} fetched=${fetched} cache_hits=${cacheHits} ` +
+      `valid=${valid.length} invalid=${errors.length} duplicates=${duplicates}`,
   );
+  console.log(`wrote ${books.length} records -> ${booksFile}`);
+  console.log(`wrote ${errors.length} errors  -> ${errorsFile}`);
 }
 
 main().catch((err) => {
