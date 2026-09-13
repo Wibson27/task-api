@@ -4,6 +4,11 @@ A REST API that manages a to-do list, running against PostgreSQL in Docker, with
 user accounts and protected routes through Supabase Auth. The whole stack — the
 app and its database — starts with one command.
 
+> **Also in this repository:** [`scraper/`](scraper/) — a separate project for
+> Assignment A9, a polite scraper for the Books to Scrape practice sandbox. It
+> has its own dependencies and its own README, shares nothing with the API, and
+> runs with `cd scraper && npm install && npm start`.
+
 Built for the FlyRank internship, Backend track. This repository is the same
 project across four assignments. The first three swapped the storage underneath
 while the task API's contract stayed the same; the fourth added authentication
