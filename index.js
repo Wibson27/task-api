@@ -253,17 +253,39 @@ function requireTokenResponse(res) {
   return res.status(401).json({ error: 'Access token required' });
 }
 
-app.get('/protected/profile', (req, res) => {
+app.get('/protected/profile', async (req, res) => {
   const token = extractBearerToken(req.get('Authorization'));
 
   if (!token) {
     return requireTokenResponse(res);
   }
 
-  // Stage 2 only checks that a token was presented. It does not yet check that
-  // the token is genuine, so any string after "Bearer " gets through here.
-  // Stage 3 closes that hole.
-  res.json({ message: 'Token presented. It has not been verified yet.' });
+  // Ask Supabase whether the token is genuine. This is a network call to
+  // Supabase's /auth/v1/user endpoint, which checks the signature, the expiry,
+  // and whether the session behind the token still exists — so a token from a
+  // session that has since been logged out is refused too, which a signature
+  // check alone would not catch.
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error) {
+    // A 4xx means Supabase looked at the token and rejected it: bad signature,
+    // expired, malformed, or a session that no longer exists. That is the
+    // client's problem, and it gets the 401 the brief specifies.
+    //
+    // Anything else — no status because the request never arrived, or a 5xx —
+    // means Supabase could not answer at all. Replying "Invalid or expired
+    // token" then would be a lie: a perfectly good token would be reported as
+    // bad, and the client would throw away a valid session. 502 says what
+    // actually happened.
+    if (error.status >= 400 && error.status < 500) {
+      res.set('WWW-Authenticate', 'Bearer realm="task-api", error="invalid_token"');
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    return res.status(502).json({ error: 'Could not verify token with the identity provider' });
+  }
+
+  const { id, email, created_at } = data.user;
+  res.json({ id, email, created_at });
 });
 
 // Anything that reached here matched no route above.
