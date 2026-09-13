@@ -196,8 +196,14 @@ app.post('/auth/signup', async (req, res) => {
   // so the status and message pass through. Anything else means Supabase
   // itself failed, which is 502: this server worked, the one behind it did not.
   if (error) {
-    const status = error.status >= 400 && error.status < 500 ? error.status : 502;
-    return res.status(status).json({ error: error.message });
+    if (error.status >= 400 && error.status < 500) {
+      return res.status(error.status).json({ error: error.message });
+    }
+
+    // Supabase's own message is only safe to relay when it is describing the
+    // client's input. For a failure on its side the message is an internal
+    // detail — a timeout, a socket error — that means nothing to the caller.
+    return res.status(502).json({ error: 'Could not reach the identity provider' });
   }
 
   // Only the fields a client needs. The full user object carries internal
@@ -214,10 +220,18 @@ app.post('/auth/login', async (req, res) => {
 
   const { data, error } = await supabase.auth.signInWithPassword(credentials);
 
-  // One message for "no such account" and "wrong password" alike. Different
-  // messages would let anyone test which email addresses are registered here.
   if (error) {
-    return res.status(401).json({ error: 'Invalid login credentials' });
+    // A 4xx means Supabase checked the credentials and refused them. One message
+    // covers "no such account" and "wrong password" alike, because different
+    // messages would let anyone probe which email addresses are registered here.
+    if (error.status >= 400 && error.status < 500) {
+      return res.status(401).json({ error: 'Invalid login credentials' });
+    }
+
+    // Anything else means Supabase never answered. Saying "Invalid login
+    // credentials" then would tell someone with the right password that it is
+    // wrong — they would retype it, reset it, and none of that would help.
+    return res.status(502).json({ error: 'Could not reach the identity provider' });
   }
 
   const { access_token, refresh_token, expires_in, token_type } = data.session;
@@ -317,19 +331,18 @@ async function main() {
   }
   console.log(seeded ? 'Seeded three example tasks' : 'Existing tasks found, skipping seed');
 
-  // A failed check is logged, not fatal. If Supabase is down, the auth routes
-  // cannot work — but the task endpoints do not depend on it, and taking the
-  // whole API offline because one upstream is unreachable would turn a partial
-  // outage into a total one.
-  try {
-    await checkConnection();
-    console.log('Connected to Supabase');
-  } catch (err) {
-    console.error(`Supabase unreachable, auth routes will fail: ${err.message}`);
-  }
-
   const server = app.listen(PORT, () => {
     console.log(`Task API listening on http://localhost:${PORT}`);
+
+    // Checked after listening, and never awaited by startup. Postgres is
+    // required — without it no endpoint works, so startup waits for it. Supabase
+    // is not: only the auth routes need it. Checking it before listening meant an
+    // unreachable Supabase delayed the whole API, and a host that hung instead of
+    // failing would have kept every endpoint offline indefinitely. A failure here
+    // is logged and the auth routes report it per request instead.
+    checkConnection()
+      .then(() => console.log('Connected to Supabase'))
+      .catch((err) => console.error(`Supabase unreachable, auth routes will fail: ${err.message}`));
   });
 
   // Compose sends SIGTERM on `docker compose down`. Without handling it the
