@@ -1,0 +1,74 @@
+$ curl -i -X POST http://localhost:3000/auth/signup -H "Content-Type: application/json" \
+    -d '{"email":"reader@gmail.com","password":"password123"}'
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
+Content-Length: 144
+
+{"user":{"id":"bf599aaf-135d-48e6-a22b-bc8bf4ab6e0d","email":"reader@gmail.com","created_at":"2026-09-13T16:00:16.273644Z"}}
+
+$ curl -i -X POST http://localhost:3000/auth/login -H "Content-Type: application/json" \
+    -d '{"email":"reader@gmail.com","password":"password123"}'
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 1064
+
+{"access_token":"eyJhbG...(truncated)","refresh_token":"iqpi5z...(truncated)","expires_in":3600,"token_type":"bearer"}
+
+$ curl -i -X POST http://localhost:3000/auth/login -H "Content-Type: application/json" \
+    -d '{"email":"reader@gmail.com","password":"wrong-password"}'
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+Content-Length: 37
+
+{"error":"Invalid login credentials"}
+
+$ curl -i http://localhost:3000/public/info
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 52
+
+{"message":"Welcome stranger! This info is public."}
+
+$ curl -i http://localhost:3000/protected/profile
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="task-api"
+Content-Type: application/json; charset=utf-8
+Content-Length: 33
+
+{"error":"Access token required"}
+
+$ curl -i http://localhost:3000/protected/profile -H "Authorization: Bearer <access_token>"
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 135
+
+{"id":"bf599aaf-135d-48e6-a22b-bc8bf4ab6e0d","email":"reader@gmail.com","created_at":"2026-09-13T16:00:16.273644Z"}
+
+# the same token with one character of its signature changed
+$ curl -i http://localhost:3000/protected/profile -H "Authorization: Bearer <tampered token>"
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="task-api", error="invalid_token"
+Content-Type: application/json; charset=utf-8
+Content-Length: 36
+
+{"error":"Invalid or expired token"}
+
+$ curl -i http://localhost:3000/protected/dashboard -H "Authorization: Bearer <access_token>"
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Content-Length: 114
+
+{"message":"Welcome back, reader@gmail.com.","user_id":"bf599aaf-135d-48e6-a22b-bc8bf4ab6e0d"}
+
+$ curl -i -X POST http://localhost:3000/auth/logout -H "Authorization: Bearer <access_token>"
+HTTP/1.1 204 No Content
+
+
+# the token that was just logged out
+$ curl -i http://localhost:3000/protected/profile -H "Authorization: Bearer <access_token>"
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="task-api", error="invalid_token"
+Content-Type: application/json; charset=utf-8
+Content-Length: 36
+
+{"error":"Invalid or expired token"}

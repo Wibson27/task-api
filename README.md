@@ -1,25 +1,46 @@
 # Task API
 
-A REST API that manages a to-do list, running against PostgreSQL in Docker. The
-whole stack — the app and its database — starts with one command.
+A REST API that manages a to-do list, running against PostgreSQL in Docker, with
+user accounts and protected routes through Supabase Auth. The whole stack — the
+app and its database — starts with one command.
 
 Built for the FlyRank internship, Backend track. This repository is the same
-project across three assignments, and the API contract has not changed once:
+project across four assignments. The first three swapped the storage underneath
+while the task API's contract stayed the same; the fourth added authentication
+beside it:
 
 | | Where tasks live | What runs it | Survives |
 |---|---|---|---|
 | **A1** | an array in memory | the Node process | nothing |
 | **A2** | a `tasks.db` file | SQLite, in-process | a process restart |
-| **A3** (here) | rows in Postgres | a container | `docker compose down` |
+| **A3** | rows in Postgres | a container | `docker compose down` |
+| **A4** | unchanged | + Supabase Auth for users | — |
 
 The A2 version is still runnable at the [`a2-sqlite`](../../tree/a2-sqlite) tag.
 
 ## Run it
 
+**1. Create a free Supabase project** at [supabase.com](https://supabase.com),
+then in its dashboard:
+
+- **Project Settings → API**: copy the **Project URL** and the **public key** —
+  labelled `anon public` on older dashboards, or `publishable`
+  (`sb_publishable_…`) on newer ones. Never the `service_role` / secret key: it
+  bypasses every security rule in the project.
+- **Authentication → Sign In / Providers → Email**: turn **Confirm email** off,
+  then **Save**. Without this a new account cannot log in until someone clicks a
+  link in an inbox. In production you would leave it on.
+
+**2. Configure and start:**
+
 ```bash
-cp .env.example .env
+cp .env.example .env     # then set SUPABASE_URL and SUPABASE_KEY in .env
 docker compose up
 ```
+
+Compose refuses to start if either Supabase variable is unset. It cannot tell a
+placeholder from a real value, though — if you leave the example values in, the
+stack starts and every auth route fails.
 
 That is the whole setup. Compose builds the API image, starts Postgres, waits
 for it to become healthy, then starts the app, which creates the table and seeds
@@ -46,6 +67,8 @@ All configuration is environment variables. `.env` is git-ignored;
 | `DATABASE_URL` | the app | `postgres://postgres:dev@localhost:5432/tasks` |
 | `PORT` | the app | `3000` |
 | `POSTGRES_PASSWORD` | compose, for both services | `dev` |
+| `SUPABASE_URL` | the app | `https://your-project-ref.supabase.co` |
+| `SUPABASE_KEY` | the app | the project's **public** key, never the service_role key |
 
 The host differs depending on where the app runs. On your machine against the
 container it is `localhost`; inside compose it is `db`, the service name —
@@ -62,7 +85,140 @@ npm install
 npm start
 ```
 
-## Endpoints
+## Authentication
+
+This server stores no passwords and hashes nothing. Supabase holds the accounts,
+checks passwords against its own hashes, and signs the tokens. This server passes
+credentials through to Supabase, and on every protected request asks Supabase
+whether the token it was handed is genuine.
+
+### Routes
+
+| Method | Path | Purpose | Auth | Success | Errors |
+|---|---|---|---|---|---|
+| POST | `/auth/signup` | Create an account | none | 201 | 400 missing field · 422 rejected by Supabase |
+| POST | `/auth/login` | Log in, receive tokens | none | 200 | 400 missing field · 401 wrong credentials |
+| POST | `/auth/logout` | End this token's session | **Bearer** | 204 | 401 |
+| GET | `/public/info` | Public information | none | 200 | — |
+| GET | `/protected/profile` | The logged-in user | **Bearer** | 200 | 401 |
+| GET | `/protected/dashboard` | A second protected route | **Bearer** | 200 | 401 |
+
+Any auth route can also answer **502** if Supabase cannot be reached — see below.
+
+Send the token as a header: `Authorization: Bearer <access_token>`.
+
+### In Swagger UI
+
+Open http://localhost:3000/docs, log in through `POST /auth/login`, copy the
+`access_token`, click **Authorize**, paste it, then **Try it out** on any padlocked
+route. Swagger attaches the header for you.
+
+![Swagger UI with padlocks on the three protected routes](docs/swagger-auth.png)
+
+### The whole flow, via curl
+
+```text
+$ curl -i -X POST http://localhost:3000/auth/login -H "Content-Type: application/json" \
+    -d '{"email":"reader@gmail.com","password":"password123"}'
+HTTP/1.1 200 OK
+{"access_token":"eyJhbG...(truncated)","refresh_token":"iqpi5z...(truncated)","expires_in":3600,"token_type":"bearer"}
+
+$ curl -i http://localhost:3000/protected/profile
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="task-api"
+{"error":"Access token required"}
+
+$ curl -i http://localhost:3000/protected/profile -H "Authorization: Bearer <access_token>"
+HTTP/1.1 200 OK
+{"id":"...","email":"reader@gmail.com","created_at":"..."}
+
+# the same token with one character of its signature changed
+$ curl -i http://localhost:3000/protected/profile -H "Authorization: Bearer <tampered token>"
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="task-api", error="invalid_token"
+{"error":"Invalid or expired token"}
+
+$ curl -i -X POST http://localhost:3000/auth/logout -H "Authorization: Bearer <access_token>"
+HTTP/1.1 204 No Content
+
+# the token that was just logged out
+$ curl -i http://localhost:3000/protected/profile -H "Authorization: Bearer <access_token>"
+HTTP/1.1 401 Unauthorized
+{"error":"Invalid or expired token"}
+```
+
+Full transcript, including signup and a wrong password:
+[docs/auth-curl-session.txt](docs/auth-curl-session.txt).
+
+### How the guard works
+
+`requireAuth` in `index.js` is Express middleware. Any route that lists it runs it
+first, and the route body only runs if the guard calls `next()`:
+
+```js
+app.get('/protected/dashboard', requireAuth, (req, res) => { ... });
+```
+
+It reads the header, rejects anything that is not exactly `Bearer <token>`, then
+calls `supabase.auth.getUser(token)`. On success it attaches `req.user`. The
+dashboard route contains no auth code at all — listing `requireAuth` is the whole
+difference between it and a public route, which is the point: there is no
+protected route that forgot the check.
+
+The verification is a network call to Supabase rather than a local signature
+check, deliberately. Tokens here are signed with ES256, so the signature could be
+checked locally — and that local check was measured **still accepting a token
+after its session had been logged out**. A signed token cannot be unsigned; only
+asking the issuer whether the session still exists catches a logout before the
+token expires on its own. This is why instant logout is hard with stateless JWTs.
+
+Login answers `Invalid login credentials` for a wrong password and for an email
+that has no account alike. Two different messages would let anyone test which
+email addresses are registered.
+
+### Logout ends one session, not all of them
+
+Logout calls `admin.signOut(token, 'local')`. `'local'` ends only the session this
+token belongs to. The SDK's default is `'global'`, which ends every session the
+user has. Measured with one user logged in twice: after logging out the first
+token, it got 401 and the second still got 200. Logging out on a laptop does not
+sign you out on your phone.
+
+### Things building this turned up
+
+**A shared Supabase client acts as whoever logged in last.** The SDK is built for a
+browser, where one client belongs to one user. After `signInWithPassword` it keeps
+that user's session inside the client object — and `persistSession: false` does
+not prevent that; it only stops the session being written to storage. Measured:
+two users log in through one client, X then Y, and the client holds Y's session.
+Calling `auth.signOut()` on it then logged out **Y — not X, who asked.** On a server
+that would sign out the wrong person. So signup and login each use a throwaway
+client, and logout uses `admin.signOut(token)`, which is told exactly which token
+to revoke. Verified through the real server: X logs out, Y stays logged in.
+
+**An unreachable Supabase must not look like a bad password.** Tested by pointing
+the app at a host that never answers:
+
+| | Before the fix | After |
+|---|---|---|
+| Server startup | blocked until the Supabase check gave up | listens immediately |
+| `GET /tasks` | no response | 200 in a few milliseconds |
+| `POST /auth/login` | **401 "Invalid login credentials"** | 502 after 5 s |
+| `GET /protected/profile` | hung indefinitely | 502 after 5 s |
+
+The login row is the one that mattered: during an outage it told someone with the
+correct password that their password was wrong. Only a 4xx from Supabase is a 401
+now. `/tasks` does not depend on Supabase at all, so a Supabase outage no longer
+takes it down.
+
+**The Docker image was broken from Stage 0 and nothing noticed.** The Dockerfile
+listed source files by name, so `supabase.js` was never copied in, and the
+container crash-looped on `require('./supabase')`. Every local check and every
+contract test passed throughout, because none of them run the image — and the
+image is exactly what someone cloning this runs. `COPY *.js` now picks up new
+modules automatically.
+
+## Task endpoints
 
 Identical to A1 and A2. Only the storage behind them changed.
 
@@ -201,6 +357,20 @@ $ git log --all --pretty=format: --name-only | sort -u | grep -x '.env'
 `.env` is also in `.dockerignore`, so it never enters the build context and
 cannot end up baked into an image that gets pushed to a registry.
 
+The Supabase key in `.env` is the project's **public** key. It is designed to be
+exposed to clients and is limited by row-level security. The `service_role` key
+never appears anywhere in this project; it bypasses every rule, and anything
+holding it can read and write every user's data.
+
+**Tokens in documentation get truncated, whatever their length.** The curl
+transcript in `docs/` was first written with a rule that shortened values of 16
+characters or more. Supabase's refresh tokens are 12 characters, so one survived
+in full — and it was still live: exchanging it returned a fresh session. It was
+caught before any commit, the session was revoked (reusing the refresh token now
+returns 400), and every token value in the transcript is now cut to six
+characters regardless of length. A refresh token is as sensitive as a password
+for as long as its session exists.
+
 ## Persistence, proven
 
 Tasks created through the stack, then both containers destroyed and recreated:
@@ -269,6 +439,13 @@ Postgres server in a container. Three storage engines, one unchanged contract.
 That is what "storage is an implementation detail" means, stated as something
 executable rather than as a claim.
 
+It also passed, unchanged, after every stage of A4 — which is how adding
+authentication was shown not to break the task API. It does **not** test the auth
+routes themselves. Those were verified by scripted runs against a real Supabase
+project, recorded in `docs/auth-curl-session.txt`, but not captured as repeatable
+tests: each run would create real user accounts in a real project. That is a gap,
+and a mocked Supabase client is the usual way to close it.
+
 One assertion was widened: `/health` now runs a real query and reports `db: "ok"`,
 so its body carries a field it did not have before. `/health` is an operational
 endpoint, not one of the five CRUD endpoints whose shapes the assignment pins —
@@ -326,8 +503,9 @@ The multi-stage Dockerfile is kept for a second reason regardless: it ends with
 ## Project layout
 
 ```
-index.js           HTTP layer — routes, validation, status codes. Knows no SQL.
+index.js           HTTP layer — routes, validation, status codes, the auth guard.
 db.js              Storage layer — the only file that knows SQL exists.
+supabase.js        Identity provider client, with timeouts. Holds no sessions.
 compose.yaml       The two services, the network, the volume, the healthcheck.
 Dockerfile         Multi-stage build for the api image.
 .dockerignore      Keeps node_modules, .git and .env out of the build context.
