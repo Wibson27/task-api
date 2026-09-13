@@ -11,6 +11,7 @@
   "author": "Rifqi Wibisono",
   "license": "ISC",
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "express": "^5.2.1",
     "pg": "^8.23.0",
     "swagger-ui-express": "^5.0.1"

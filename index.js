@@ -6,6 +6,7 @@ const openapi = require('./openapi.json');
 // The only module that knows SQL exists. Which engine is behind it — an array,
 // a SQLite file, a Postgres server — is not this file's business.
 const store = require('./db');
+const { checkConnection } = require('./supabase');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -187,6 +188,17 @@ async function main() {
     console.log(`Postgres became reachable after ${attempts} attempts`);
   }
   console.log(seeded ? 'Seeded three example tasks' : 'Existing tasks found, skipping seed');
+
+  // A failed check is logged, not fatal. If Supabase is down, the auth routes
+  // cannot work — but the task endpoints do not depend on it, and taking the
+  // whole API offline because one upstream is unreachable would turn a partial
+  // outage into a total one.
+  try {
+    await checkConnection();
+    console.log('Connected to Supabase');
+  } catch (err) {
+    console.error(`Supabase unreachable, auth routes will fail: ${err.message}`);
+  }
 
   const server = app.listen(PORT, () => {
     console.log(`Task API listening on http://localhost:${PORT}`);

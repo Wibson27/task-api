@@ -3,7 +3,7 @@
   "info": {
     "title": "Task API",
     "version": "1.0",
-    "description": "CRUD API for tasks, stored in a SQLite database (tasks.db). Data survives a server restart."
+    "description": "CRUD API for tasks, stored in PostgreSQL, with authentication through Supabase Auth."
   },
   "servers": [
     {

@@ -8,6 +8,10 @@ services:
       # name, `db`, not localhost — each container has its own localhost.
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-dev}@db:5432/tasks
       PORT: 3000
+      # Read from .env by compose's variable substitution, so the keys live in
+      # one git-ignored file and are never written into this committed one.
+      SUPABASE_URL: ${SUPABASE_URL:?set SUPABASE_URL in .env}
+      SUPABASE_KEY: ${SUPABASE_KEY:?set SUPABASE_KEY in .env}
     depends_on:
       db:
         # Waiting for `service_started` would only mean the container exists.
