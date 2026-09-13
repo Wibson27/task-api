@@ -72,6 +72,9 @@
               ]
             }
           }
+        ],
+        "tags": [
+          "Tasks"
         ]
       },
       "post": {
@@ -111,7 +114,10 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Tasks"
+        ]
       }
     },
     "/tasks/{id}": {
@@ -154,7 +160,10 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Tasks"
+        ]
       },
       "put": {
         "summary": "Update a task",
@@ -220,7 +229,10 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Tasks"
+        ]
       },
       "delete": {
         "summary": "Delete a task",
@@ -242,7 +254,10 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Tasks"
+        ]
       }
     },
     "/stats": {
@@ -260,7 +275,10 @@
               }
             }
           }
-        }
+        },
+        "tags": [
+          "Tasks"
+        ]
       }
     },
     "/reset": {
@@ -277,6 +295,375 @@
                   "items": {
                     "$ref": "#/components/schemas/Task"
                   }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/auth/signup": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Create an account",
+        "operationId": "signup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "email or password missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "password is required"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected by Supabase, for example already registered or password too short",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "User already registered"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Supabase could not be reached, so the request could not be completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Could not reach the identity provider"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Log in and receive an access token",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logged in. Copy access_token into Authorize.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "email or password missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "email is required"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong password or no such account, deliberately indistinguishable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Invalid login credentials"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Supabase could not be reached, so the request could not be completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Could not reach the identity provider"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "End the session this token belongs to",
+        "description": "Revokes only this session. Other sessions for the same user, such as another device, stay logged in.",
+        "operationId": "logout",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Logged out. The token is rejected from now on."
+          },
+          "401": {
+            "description": "No token, a malformed Authorization header, or a token that is invalid, expired, or logged out",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Bearer realm=\"task-api\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing": {
+                    "value": {
+                      "error": "Access token required"
+                    }
+                  },
+                  "invalid": {
+                    "value": {
+                      "error": "Invalid or expired token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Supabase could not be reached, so the request could not be completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Could not reach the identity provider"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/info": {
+      "get": {
+        "tags": [
+          "Public"
+        ],
+        "summary": "Public information",
+        "operationId": "publicInfo",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Open to anyone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                },
+                "example": {
+                  "message": "Welcome stranger! This info is public."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/protected/profile": {
+      "get": {
+        "tags": [
+          "Protected"
+        ],
+        "summary": "Profile of the logged-in user",
+        "operationId": "profile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user the token belongs to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, a malformed Authorization header, or a token that is invalid, expired, or logged out",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Bearer realm=\"task-api\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing": {
+                    "value": {
+                      "error": "Access token required"
+                    }
+                  },
+                  "invalid": {
+                    "value": {
+                      "error": "Invalid or expired token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Supabase could not be reached to verify the token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Could not verify token with the identity provider"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/protected/dashboard": {
+      "get": {
+        "tags": [
+          "Protected"
+        ],
+        "summary": "A second protected route, guarded by the same middleware",
+        "operationId": "dashboard",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Greeting for the logged-in user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dashboard"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, a malformed Authorization header, or a token that is invalid, expired, or logged out",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Bearer realm=\"task-api\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "missing": {
+                    "value": {
+                      "error": "Access token required"
+                    }
+                  },
+                  "invalid": {
+                    "value": {
+                      "error": "Invalid or expired token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Supabase could not be reached to verify the token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Could not verify token with the identity provider"
                 }
               }
             }
@@ -367,7 +754,145 @@
             "example": 4
           }
         }
+      },
+      "Credentials": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "test@example.com"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 6,
+            "example": "password123"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "99754b90-9d5b-4352-bf58-d519fa07869a"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "test@example.com"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-13T15:37:25.457751Z"
+          }
+        }
+      },
+      "SignupResponse": {
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in",
+          "token_type"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "A JWT. Send it as Authorization: Bearer <token>."
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "Exchange for a new access token once this one expires."
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Seconds until the access token expires.",
+            "example": 3600
+          },
+          "token_type": {
+            "type": "string",
+            "example": "bearer"
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "Dashboard": {
+        "type": "object",
+        "required": [
+          "message",
+          "user_id"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Welcome back, test@example.com."
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "The access_token returned by POST /auth/login. Paste the token alone; Swagger adds the Bearer prefix."
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Sign up, log in, log out. Supabase holds the accounts and signs the tokens."
+    },
+    {
+      "name": "Public",
+      "description": "Open to anyone."
+    },
+    {
+      "name": "Protected",
+      "description": "Requires a valid access token. Click Authorize and paste one from /auth/login."
+    },
+    {
+      "name": "Tasks",
+      "description": "The task CRUD API from A1 to A3."
+    }
+  ]
 }
