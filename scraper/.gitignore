@@ -1,0 +1,5 @@
+node_modules/
+
+# Downloaded HTML. Dozens of files that any run can recreate, and copies of
+# someone else's pages — they do not belong in the repo.
+cache/

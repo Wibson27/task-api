@@ -17,3 +17,6 @@ tasks.db-*
 docs
 test
 README.md
+
+# A separate project (A9) that shares this repo but not this image.
+scraper

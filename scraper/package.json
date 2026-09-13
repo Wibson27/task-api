@@ -1,0 +1,15 @@
+{
+  "name": "polite-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A polite scraper for the Books to Scrape sandbox. FlyRank Internship, Backend Track, Week 5, A9.",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "author": "Rifqi Wibisono",
+  "license": "ISC"
+}
